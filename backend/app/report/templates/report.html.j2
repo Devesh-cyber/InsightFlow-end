@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ r.meta.title }}</title>
+<meta name="generator" content="{{ r.meta.app }}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* InsightFlow report template · Sage theme. Edit the tokens to restyle every page. */
+:root {
+  --bg: #F2F4F0; --paper: #FCFDFB; --sunken: #F2F4F0; --border: #DCE2D8; --line: #E8ECE5;
+  --text: #1E2620; --muted: #59645B; --accent: #3F6E4E; --accent-strong: #2B4E37; --accent-soft: #E2ECE3;
+  --chip: #EEF0EC; --warn: #855A0C; --warn-soft: #F7EBD3; --danger: #9B3426; --danger-soft: #F8E3DF;
+  --sans: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono: 'DM Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; color: var(--text); font-family: var(--sans); font-size: 10.5pt; line-height: 1.55;
+       -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page { max-width: 210mm; margin: 24px auto; background: var(--paper); border: 1px solid var(--border);
+        border-radius: 16px; padding: 18mm 16mm; }
+.num, td.n, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+h1, h2, h3 { color: var(--text); letter-spacing: -0.015em; margin: 0; }
+h2 { font-size: 15pt; font-weight: 700; display: flex; gap: 10px; align-items: baseline; margin: 0 0 4mm; }
+h2 .idx { font-family: var(--mono); font-size: 10pt; font-weight: 500; color: var(--accent); }
+h3 { font-size: 11.5pt; font-weight: 700; }
+p { margin: 0 0 3mm; }
+.muted { color: var(--muted); }
+.small { font-size: 9pt; }
+section { margin-top: 11mm; }
+section:first-of-type { margin-top: 0; }
+
+/* screen-only hint */
+.screen-hint { max-width: 210mm; margin: 16px auto -8px; padding: 0 4px; font-size: 9.5pt; color: var(--muted); }
+.screen-hint kbd { font-family: var(--mono); background: var(--chip); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+
+/* cover */
+.cover { min-height: 245mm; display: flex; flex-direction: column; margin-bottom: 14mm; }
+.brand { font-weight: 700; font-size: 12pt; color: var(--accent-strong); display: flex; align-items: center; gap: 8px; }
+.brand-mark { width: 12px; height: 12px; border-radius: 3px; background: var(--accent); }
+.cover-main { margin-top: auto; margin-bottom: auto; }
+.eyebrow { font-size: 9pt; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.cover h1 { font-size: 28pt; line-height: 1.15; margin: 4mm 0 5mm; font-weight: 700; }
+.cover-meta { display: grid; grid-template-columns: max-content 1fr; gap: 2mm 8mm; font-size: 10pt; }
+.cover-meta dt { color: var(--muted); }
+.cover-meta dd { margin: 0; font-weight: 600; }
+.cover-foot { border-top: 1px solid var(--line); padding-top: 4mm; font-size: 9pt; color: var(--muted);
+              display: flex; justify-content: space-between; gap: 8mm; }
+
+/* tiles */
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin-bottom: 5mm; }
+.kpi { background: var(--sunken); border-radius: 12px; padding: 4mm; }
+.kpi.accent { background: var(--accent-soft); color: var(--accent-strong); }
+.kpi-label { font-size: 8.5pt; font-weight: 500; color: var(--muted); }
+.kpi.accent .kpi-label { color: var(--accent-strong); }
+.kpi-value { font-family: var(--mono); font-size: 18pt; font-weight: 500; line-height: 1.3; }
+.kpi-sub { font-size: 8.5pt; }
+
+.findings { margin: 0; padding: 0; list-style: none; display: grid; gap: 2mm; }
+.findings li { padding: 3mm 4mm; border: 1px solid var(--border); border-radius: 10px; border-left: 3px solid var(--accent); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+.table-wrap { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+thead { display: table-header-group; }
+th { text-align: left; font-weight: 600; color: var(--muted); padding: 2.5mm 3mm; background: var(--sunken); }
+td { padding: 2.5mm 3mm; border-top: 1px solid var(--line); vertical-align: top; }
+th.r, td.r { text-align: right; }
+tr { break-inside: avoid; }
+.chip { font-family: var(--mono); font-size: 8.5pt; padding: 0.5mm 2mm; border-radius: 6px; background: var(--chip); white-space: nowrap; }
+.chip.accent { background: var(--accent-soft); color: var(--accent-strong); }
+.flag { color: var(--warn); font-weight: 600; }
+.better { color: var(--accent-strong); font-weight: 600; }
+.worse { color: var(--danger); font-weight: 600; }
+
+/* issues */
+.sev { font-size: 8pt; font-weight: 600; padding: 0.5mm 2mm; border-radius: 6px; text-transform: capitalize; white-space: nowrap; }
+.sev.critical { background: var(--danger-soft); color: var(--danger); }
+.sev.warning { background: var(--warn-soft); color: var(--warn); }
+.sev.info { background: var(--chip); color: var(--muted); }
+.issue { border: 1px solid var(--border); border-radius: 10px; padding: 3mm 4mm; margin-bottom: 2.5mm; break-inside: avoid; }
+.issue-head { display: flex; gap: 3mm; align-items: baseline; }
+.issue-title { font-weight: 600; }
+.rec { font-size: 9pt; color: var(--accent-strong); margin-top: 1mm; }
+.note { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 2.5mm 3.5mm; font-size: 9pt; margin: 2mm 0; }
+.note.neutral { background: var(--sunken); color: var(--muted); }
+
+/* profiles */
+.profile { border: 1px solid var(--border); border-radius: 12px; padding: 4mm; margin-bottom: 4mm; break-inside: avoid; }
+.profile-head { display: flex; gap: 3mm; align-items: center; margin-bottom: 3mm; }
+.profile-body { display: grid; grid-template-columns: 1fr 1.25fr; gap: 5mm; align-items: start; }
+.stats td { padding: 1.4mm 0; border-top: 1px solid var(--line); }
+.stats tr:first-child td { border-top: 0; }
+.stats td:last-child { text-align: right; font-family: var(--mono); }
+.chart { display: block; }
+.chart .tick { font-family: var(--mono); font-size: 10px; fill: var(--muted); }
+.hbar { display: grid; grid-template-columns: 34% 1fr 3em; gap: 2mm; align-items: center; font-size: 9pt; margin-bottom: 1.5mm; }
+.hbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar-track { height: 7px; border-radius: 4px; background: var(--sunken); overflow: hidden; }
+.hbar-fill { display: block; height: 100%; border-radius: 4px; background: #4A8C5C; }
+.hbar-value { font-family: var(--mono); text-align: right; }
+.hbar-other { font-size: 8.5pt; color: var(--muted); }
+.profile-notes { margin: 3mm 0 0; padding-left: 4mm; font-size: 9pt; color: var(--muted); }
+
+/* code */
+pre { font-family: var(--mono); font-size: 8.3pt; line-height: 1.5; background: var(--sunken); border: 1px solid var(--border);
+      border-radius: 10px; padding: 4mm; white-space: pre-wrap; word-break: break-word; margin: 0; }
+dl.glossary { margin: 0; }
+dl.glossary dt { font-weight: 700; margin-top: 3mm; }
+dl.glossary dd { margin: 1mm 0 0; color: var(--text); }
+
+.foot { margin-top: 12mm; padding-top: 4mm; border-top: 1px solid var(--line); font-size: 8.5pt; color: var(--muted); display: flex; justify-content: space-between; }
+
+@page { size: A4; margin: 14mm 14mm 16mm; }
+@media print {
+  html, body { background: #fff; }
+  .screen-hint { display: none; }
+  .page { margin: 0; border: 0; border-radius: 0; padding: 0; max-width: none; }
+  .cover { min-height: 262mm; break-after: page; }
+  section.major { break-before: page; margin-top: 0; }
+  section.keep { break-inside: avoid; }
+  .cover { margin-bottom: 0; }
+  h2, h3 { break-after: avoid; }
+}
+@media (max-width: 700px) {
+  .page { margin: 0; border-radius: 0; padding: 20px 16px; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .profile-body { grid-template-columns: 1fr; }
+  .table-wrap { overflow-x: auto; }
+}
+</style>
+</head>
+<body>
+<p class="screen-hint">To save this report as a PDF, press <kbd>Ctrl</kbd> + <kbd>P</kbd> (<kbd>⌘</kbd> + <kbd>P</kbd> on Mac) and choose "Save as PDF".</p>
+<main class="page">
+
+  <!-- ===================================================== cover -->
+  <div class="cover">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span>{{ r.meta.app }}</div>
+    <div class="cover-main">
+      <div class="eyebrow">Data analysis report</div>
+      <h1>{{ r.meta.title }}</h1>
+      <dl class="cover-meta">
+        {% if r.meta.author %}<dt>Prepared by</dt><dd>{{ r.meta.author }}</dd>{% endif %}
+        <dt>Dataset</dt><dd>{{ r.meta.dataset_name }}</dd>
+        <dt>Source file</dt><dd>{{ r.meta.source_filename }} <span class="muted">· {{ r.meta.source_format }} · {{ r.meta.source_size }}</span></dd>
+        {% if r.meta.sheet_name %}<dt>Sheet</dt><dd>{{ r.meta.sheet_name }}{% if r.meta.sheet_count %} <span class="muted">(1 of {{ r.meta.sheet_count }})</span>{% endif %}</dd>{% endif %}
+        <dt>Version reported</dt><dd class="mono">v{{ r.meta.version }}</dd>
+        <dt>Generated</dt><dd>{{ r.meta.generated_display }}</dd>
+      </dl>
+    </div>
+    <div class="cover-foot">
+      <span>Contents: 1 Summary · 2 The data · 3 Data quality · 4 Cleaning log · 5 Column profiles · 6 Relationships · 7 Reproduce it · 8 Methods</span>
+    </div>
+  </div>
+
+  <!-- ===================================================== 1 summary -->
+  <section class="major">
+    <h2><span class="idx">01</span>Summary</h2>
+    <div class="kpis">
+      {% for k in r.summary.kpis %}
+      <div class="kpi{% if k.label == 'Health' %} accent{% endif %}">
+        <div class="kpi-label">{{ k.label }}{% if k.hint %} · {{ k.hint }}{% endif %}</div>
+        <div class="kpi-value">{{ k.value }}</div>
+        {% if k.before %}<div class="kpi-sub">was {{ k.before }} before cleaning</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <h3 style="margin-bottom:3mm">Key findings</h3>
+    <ul class="findings">
+      {% for f in r.summary.findings %}<li>{{ f }}</li>{% endfor %}
+    </ul>
+  </section>
+
+  <!-- ===================================================== 2 the data -->
+  <section>
+    <h2><span class="idx">02</span>The data</h2>
+    <p class="muted">{{ r.dataset.rows }} rows × {{ r.dataset.columns }} columns ({{ r.dataset.cells }} cells).
+      Types: {% for t in r.dataset.types %}{{ t.count }} {{ t.label }}{% if not loop.last %}, {% endif %}{% endfor %}.
+      Roles: {% for t in r.dataset.roles %}{{ t.count }} {{ t.label | lower }}{% if not loop.last %}, {% endif %}{% endfor %}.</p>
+    <h3 style="margin:4mm 0 3mm">Data dictionary</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Column</th><th>Type</th><th>Role</th><th class="r">Missing</th><th class="r">Unique</th><th>Values</th></tr></thead>
+        <tbody>
+          {% for c in r.dictionary %}
+          <tr>
+            <td><strong>{{ c.name }}</strong></td>
+            <td><span class="chip">{{ c.dtype }}</span></td>
+            <td class="muted">{{ c.role }}</td>
+            <td class="r n{% if c.missing_flag %} flag{% endif %}">{{ c.missing }}</td>
+            <td class="r n">{{ c.unique }}</td>
+            <td class="small">{{ c.summary }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================================================== 3 quality -->
+  <section>
+    <h2><span class="idx">03</span>Data quality</h2>
+    <p>Health score <strong class="num">{{ r.quality.score }}</strong> ({{ r.quality.grade }}).
+      {% if r.quality.before_version %}The "before" column is version {{ r.quality.before_version }}; "after" is version {{ r.meta.version }}.{% else %}No cleaning has been applied, so there is nothing to compare yet.{% endif %}</p>
+    <div class="table-wrap" style="margin-bottom:5mm">
+      <table>
+        <thead><tr><th>Measure</th><th class="r">Before</th><th class="r">After</th><th class="r">Change</th></tr></thead>
+        <tbody>
+          {% for row in r.quality.comparison %}
+          <tr><td>{{ row.label }}</td><td class="r n">{{ row.before }}</td><td class="r n">{{ row.after }}</td>
+            <td class="r">{% if row.change == 'better' %}<span class="better">better</span>{% elif row.change == 'worse' %}<span class="worse">worse</span>{% else %}<span class="muted">—</span>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if r.quality.deductions %}
+    <h3 style="margin-bottom:3mm">Where the points went</h3>
+    <div class="table-wrap" style="margin-bottom:5mm">
+      <table><tbody>
+        {% for d in r.quality.deductions %}<tr><td>{{ d.reason }}</td><td class="r n">−{{ d.points }}</td></tr>{% endfor %}
+      </tbody></table>
+    </div>
+    {% endif %}
+
+    <h3 style="margin-bottom:3mm">Open issues</h3>
+    {% for i in r.quality.issues %}
+    <div class="issue">
+      <div class="issue-head"><span class="sev {{ i.severity }}">{{ i.severity }}</span><span class="issue-title">{{ i.title }}</span></div>
+      <div class="small muted" style="margin-top:1mm">{{ i.message }}</div>
+      {% if i.recommended %}<div class="rec">Suggested fix: {{ i.recommended }}</div>{% endif %}
+    </div>
+    {% else %}
+    <p class="note neutral">No open issues were detected in this version.</p>
+    {% endfor %}
+    {% if r.quality.issues_omitted %}<p class="small muted">+ {{ r.quality.issues_omitted }} more issue(s) not listed.</p>{% endif %}
+    {% for n in r.quality.notes %}<p class="small muted">{{ n }}</p>{% endfor %}
+  </section>
+
+  <!-- ===================================================== 4 cleaning log -->
+  <section class="keep">
+    <h2><span class="idx">04</span>Cleaning log</h2>
+    <p class="muted">{{ r.cleaning.count }} change(s) after upload. Each row is a saved version; none of them overwrote the original file.</p>
+    {% if r.cleaning.pruned_note %}<p class="note neutral">{{ r.cleaning.pruned_note }}</p>{% endif %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Version</th><th>What was done</th><th class="r">Cells changed</th><th class="r">Rows removed</th><th class="r">Shape after</th></tr></thead>
+        <tbody>
+          {% for s in r.cleaning.steps %}
+          <tr>
+            <td><span class="chip{% if s.is_current %} accent{% endif %}">v{{ s.version }}</span></td>
+            <td>{{ s.description }}{% for w in s.warnings %}<div class="small flag" style="font-weight:500">{{ w }}</div>{% endfor %}</td>
+            <td class="r n">{{ s.cells_changed }}</td>
+            <td class="r n">{{ s.rows_removed }}</td>
+            <td class="r n">{{ s.rows }} × {{ s.columns }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================================================== 5 profiles -->
+  <section class="major">
+    <h2><span class="idx">05</span>Column profiles</h2>
+    {% for p in r.profiles %}
+    <div class="profile">
+      <div class="profile-head"><h3>{{ p.name }}</h3><span class="chip accent">{{ p.dtype }}</span><span class="muted small">{{ p.role }}</span></div>
+      <div class="profile-body">
+        <table class="stats"><tbody>
+          {% for s in p.stats %}<tr><td class="muted">{{ s[0] }}</td><td>{{ s[1] }}</td></tr>{% endfor %}
+        </tbody></table>
+        <div>{{ chart_svg(p.chart) }}</div>
+      </div>
+      {% if p.notes %}<ul class="profile-notes">{% for n in p.notes %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endfor %}
+    {% if r.profiles_omitted %}<p class="small muted">Not profiled in detail (to keep the report readable): {{ r.profiles_omitted | join(', ') }}. They are still listed in the data dictionary.</p>{% endif %}
+  </section>
+
+  <!-- ===================================================== 6 relationships -->
+  <section class="keep">
+    <h2><span class="idx">06</span>Relationships</h2>
+    {% if r.relationships.pairs %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Column A</th><th>Column B</th><th class="r">{{ 'Pearson r' if r.relationships.method == 'pearson' else 'Spearman ρ' }}</th><th>Strength</th><th class="r">Rows used</th></tr></thead>
+        <tbody>
+          {% for p in r.relationships.pairs %}
+          <tr><td>{{ p.a }}</td><td>{{ p.b }}</td><td class="r n">{{ p.r }}</td><td>{{ p.strength }}</td>
+            <td class="r n{% if p.small_sample %} flag{% endif %}">{{ p.n }}{% if p.small_sample %} · small{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if r.relationships.pairs | selectattr('small_sample') | list %}
+    <p class="note">Pairs marked "small" have fewer than 30 rows with both values. Treat their correlation as a hint, not evidence.</p>
+    {% endif %}
+    {% endif %}
+    <p class="small muted" style="margin-top:3mm">{{ r.relationships.note }}</p>
+  </section>
+
+  <!-- ===================================================== 7 recipe -->
+  <section class="keep">
+    <h2><span class="idx">07</span>Reproduce it</h2>
+    <p class="muted">This pandas script repeats every step above on the original file, so the result can be checked or rerun.</p>
+    <pre>{{ r.recipe }}</pre>
+  </section>
+
+  <!-- ===================================================== 8 methods -->
+  <section>
+    <h2><span class="idx">08</span>Methods and definitions</h2>
+    <dl class="glossary">
+      {% for m in r.methodology %}<dt>{{ m.term }}</dt><dd>{{ m.text }}</dd>{% endfor %}
+    </dl>
+  </section>
+
+  <div class="foot"><span>Generated by {{ r.meta.app }} · {{ r.meta.generated_display }}</span><span>{{ r.meta.dataset_name }} · v{{ r.meta.version }}</span></div>
+</main>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets: never commit
+.env
+.env.*
+!.env.example
+
+# Local data files used while testing
+*.parquet
+backend/sample_data/private/
+
+# Node (frontend, later)
+node_modules/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Local test artefacts
+backend/.venv/

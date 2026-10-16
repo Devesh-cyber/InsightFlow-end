@@ -1,0 +1,32 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repo.
+# Secrets marked `sync: false` are asked for once, when the Blueprint is created.
+services:
+  - type: web
+    name: insightflow-api
+    runtime: docker
+    plan: free            # 0.1 CPU / 512 MB. Change to a paid plan here when you upgrade.
+    region: singapore     # same region as the Supabase project
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false       # your Vercel URL(s), comma-separated, no trailing slash
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      - key: MAX_XLSX_UPLOAD_MB
+        value: "10"
+      - key: MAX_CONCURRENT_JOBS
+        value: "1"
