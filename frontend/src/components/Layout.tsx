@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useDataset, useDatasetId, useMe } from "../hooks/data";
-import { useTheme } from "../hooks/theme";
 import { supabase } from "../lib/supabase";
 import { Logo } from "./ui";
 
@@ -17,19 +16,6 @@ const SECTIONS: [string, string][] = [
   ["export", "Export & report"],
 ];
 
-function ThemeToggle() {
-  const { choice, setChoice } = useTheme();
-  return (
-    <div className="segmented" role="group" aria-label="Colour theme">
-      {(["light", "system", "dark"] as const).map((c) => (
-        <button key={c} aria-pressed={choice === c} onClick={() => setChoice(c)} style={{ padding: "4px 9px", fontSize: 12 }}>
-          {c === "system" ? "Auto" : c[0].toUpperCase() + c.slice(1)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function Sidebar({ open, children }: { open: boolean; children: ReactNode }) {
   const { session } = useAuth();
   const me = useMe();
@@ -38,7 +24,6 @@ function Sidebar({ open, children }: { open: boolean; children: ReactNode }) {
       <Link to="/" className="brand"><Logo />InsightFlow</Link>
       {children}
       <div className="sidebar-foot">
-        <ThemeToggle />
         {me.data && (
           <span>{me.data.usage.datasets} of {me.data.usage.max_datasets} datasets used</span>
         )}
