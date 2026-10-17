@@ -1,0 +1,105 @@
+/*
+ * Sage design tokens. Every colour in the app comes from here.
+ * Light is the default; dark follows the OS unless the user picks one
+ * (html[data-theme="light" | "dark"]).
+ */
+:root {
+  --bg: #F2F4F0;
+  --panel: #FCFDFB;
+  --sunken: #F2F4F0;
+  --border: #DCE2D8;
+  --line: #E8ECE5;
+  --text: #1E2620;
+  --strong: #1E2620;
+  --muted: #59645B;
+  --nav: #3A443C;
+  --accent: #3F6E4E;
+  --accent-strong: #2B4E37;
+  --accent-soft: #E2ECE3;
+  --primary: #3F6E4E;
+  --on-primary: #FFFFFF;
+  --chip: #EEF0EC;
+  --chip-text: #3A443C;
+  --warn: #855A0C;
+  --warn-soft: #F7EBD3;
+  --danger: #9B3426;
+  --danger-soft: #F8E3DF;
+  --mark: #4A8C5C;          /* chart bars, dots (validated for contrast) */
+  --mark-soft: #E2ECE3;
+  --whisker: #8A958C;
+  --neg: #8E5BA8;           /* negative end of diverging scales (plum: CVD-safe against green) */
+  --neg-soft: #EFE4F3;
+  --focus: #3F6E4E;
+  --shadow: 0 1px 2px rgba(30, 38, 32, 0.06), 0 8px 24px rgba(30, 38, 32, 0.08);
+
+  --sans: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "DM Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --radius-lg: 16px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121613;
+    --panel: #1A1F1B;
+    --sunken: #212822;
+    --border: #2D352E;
+    --line: #262D27;
+    --text: #DCE3DD;
+    --strong: #EEF2EE;
+    --muted: #9AA69C;
+    --nav: #B9C3BA;
+    --accent: #93C4A1;
+    --accent-strong: #B8DCC2;
+    --accent-soft: #233328;
+    --primary: #8FC19E;
+    --on-primary: #0F1A12;
+    --chip: #262D27;
+    --chip-text: #C5CEC6;
+    --warn: #E3B866;
+    --warn-soft: #3A301A;
+    --danger: #F09A8C;
+    --danger-soft: #3B221E;
+    --mark: #5FA574;
+    --mark-soft: #233328;
+    --whisker: #7E8A80;
+    --neg: #9F7BC4;
+    --neg-soft: #2E2536;
+    --focus: #93C4A1;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #121613;
+  --panel: #1A1F1B;
+  --sunken: #212822;
+  --border: #2D352E;
+  --line: #262D27;
+  --text: #DCE3DD;
+  --strong: #EEF2EE;
+  --muted: #9AA69C;
+  --nav: #B9C3BA;
+  --accent: #93C4A1;
+  --accent-strong: #B8DCC2;
+  --accent-soft: #233328;
+  --primary: #8FC19E;
+  --on-primary: #0F1A12;
+  --chip: #262D27;
+  --chip-text: #C5CEC6;
+  --warn: #E3B866;
+  --warn-soft: #3A301A;
+  --danger: #F09A8C;
+  --danger-soft: #3B221E;
+  --mark: #5FA574;
+  --mark-soft: #233328;
+  --whisker: #7E8A80;
+  --neg: #9F7BC4;
+  --neg-soft: #2E2536;
+  --focus: #93C4A1;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
