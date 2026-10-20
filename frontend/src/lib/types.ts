@@ -241,6 +241,7 @@ export interface Preview {
   samples: {
     changed_rows?: { columns: string[]; rows: { row: number; before: Cell[]; after: Cell[] }[] };
     removed_rows?: { columns: string[]; rows: { row: number; values: Cell[] }[] };
+    new_columns?: { columns: string[]; added: string[]; rows: { row: number; values: Cell[] }[] };
   };
   columns_after: ColumnInfo[];
 }
@@ -316,4 +317,42 @@ export interface MatchingRows {
   highlight: string[];
   offset: number;
   rows: { row: number; values: Cell[] }[];
+}
+
+// ------------------------------------------------------------- ML-ready (stage 3)
+export type MLRole = "use" | "drop" | "target";
+export type MLStep =
+  | { kind: "fill_missing"; strategy: "mean" | "median" | "mode" | "constant"; value?: unknown; add_indicator?: boolean }
+  | { kind: "clip"; method: "percentile" | "iqr" | "values"; lower?: number | null; upper?: number | null; factor?: number }
+  | { kind: "transform"; method: "log1p" | "log" | "log10" | "sqrt" | "square" }
+  | { kind: "scale"; method: "standard" | "minmax" | "robust" }
+  | { kind: "encode"; method: "onehot" | "frequency" | "ordinal"; max_categories?: number; drop_first?: boolean; order?: string[] | null }
+  | { kind: "bin"; method: "quantile" | "equal_width"; bins: number }
+  | { kind: "date_parts"; parts: string[] }
+  | { kind: "to_number" };
+
+export interface MLColumnPlan { role: MLRole; steps: MLStep[] }
+export interface MLFeature { name: string; formula: FormulaTerm[] }
+export interface MLPlan {
+  columns: Record<string, MLColumnPlan>;
+  features: MLFeature[];
+  split: { enabled: boolean; test_size: number; seed: number; stratify: boolean };
+}
+export interface MLSuggestion {
+  dtype: string; role: string; suggested_role: MLRole; role_reason: string | null;
+  steps: MLStep[]; reason: string | null; missing: number; unique: number;
+}
+export interface MLReadiness { locked: boolean; primary_open: number; secondary_open: number; version: number }
+export interface MLView { version: number; rows: number; plan: MLPlan; suggestions: Record<string, MLSuggestion>; readiness: MLReadiness }
+export interface MLStats { dtype: string; missing: number; mean?: number | null; std?: number | null; min?: number | null; max?: number | null; skew?: number | null; unique?: number }
+export interface MLPreview {
+  version: number;
+  shape_before: [number, number];
+  shape_after: [number, number];
+  split: { how: string; train: number; test: number } | null;
+  target: string | null;
+  columns: { name: string; source: string; before: MLStats | null; after: MLStats }[];
+  preview: { columns: string[]; rows: Cell[][] };
+  warnings: string[];
+  learned: Record<string, unknown[]>;
 }

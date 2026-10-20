@@ -27,7 +27,7 @@ def run(df, op, **params):
 
 
 def test_every_operation_has_a_description():
-    assert len(OPERATIONS) == 17  # 15 built-in steps + apply_rule + standardize_values
+    assert len(OPERATIONS) == 18  # 15 built-in steps + apply_rule + standardize_values + transform_numbers
 
 
 def test_convert_to_integer_with_markers(df):
@@ -148,3 +148,44 @@ def test_invalid_requests(df, op, params):
 def test_row_id_never_leaks(df):
     for op, params in [("drop_duplicates", {}), ("fill_missing", {"columns": ["city"], "strategy": "mode"})]:
         assert "__insightflow_row_id__" not in run_operation(df, op, params).df.columns
+
+
+def test_transform_numbers_log_new_column_and_domain():
+    import math
+
+    import polars as pl
+
+    from app.engine.operations import run_operation
+    df = pl.DataFrame({"amount": [0.0, 9.0, 99.0, -5.0, None], "label": list("abcde")})
+    r = run_operation(df, "transform_numbers", {"column": "amount", "method": "log1p"})
+    assert r.df.columns == ["amount", "label", "amount_log"] and r.df["amount"].to_list()[1] == 9.0
+    out = r.df["amount_log"].to_list()
+    assert out[0] == 0.0 and math.isclose(out[1], math.log(10)) and out[3] is None and out[4] is None
+    assert any("aren't > -1" in w for w in r.warnings)
+    r2 = run_operation(df, "transform_numbers", {"column": "amount", "method": "sqrt", "keep_original": False})
+    assert r2.df.columns == ["amount", "label"] and r2.df["amount"].to_list()[1] == 3.0
+    r3 = run_operation(df, "transform_numbers", {"column": "amount", "method": "log10", "new_name": "a10"})
+    assert math.isclose(r3.df["a10"].to_list()[2], math.log10(99))
+
+
+def test_transform_numbers_refuses_text_and_name_clash():
+    import polars as pl
+    import pytest as _pt
+
+    from app.core.errors import UnprocessableError
+    from app.engine.operations import run_operation
+    df = pl.DataFrame({"t": ["a", "b"], "n": [1, 2], "n_log": [0.0, 0.0]})
+    with _pt.raises(UnprocessableError, match="number column"):
+        run_operation(df, "transform_numbers", {"column": "t"})
+    with _pt.raises(UnprocessableError, match="already exists"):
+        run_operation(df, "transform_numbers", {"column": "n"})
+
+
+def test_new_column_preview_shows_values_next_to_source():
+    import polars as pl
+
+    from app.engine.operations import run_operation
+    df = pl.DataFrame({"amount": [0.0, 9.0, 99.0], "label": list("abc")})
+    sample = run_operation(df, "transform_numbers", {"column": "amount"}).samples["new_columns"]
+    assert sample["columns"] == ["amount", "amount_log"] and sample["added"] == ["amount_log"]
+    assert sample["rows"][1]["row"] == 2 and sample["rows"][1]["values"][0] == 9.0

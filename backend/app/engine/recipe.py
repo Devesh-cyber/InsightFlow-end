@@ -10,6 +10,7 @@ import math
 
 from app.db.models import DatasetRecord, VersionRecord
 from app.engine.infer import STANDARD_MISSING
+from app.engine.operations import TransformNumbers, transform_target
 from app.engine.rules import CALC_DECIMALS, Condition, Operand, formula_code, kind_of, mask_code
 
 
@@ -121,6 +122,15 @@ def _step_code(op: dict, dtypes: dict[str, str] | None = None, after: dict[str, 
         if p.get("match") == "contains":
             return [f"df[{c}] = df[{c}].str.replace({_q(p['find'])}, {_q(p['replace'])}, regex=False)"]
         return [f"df[{c}] = df[{c}].replace({_q(p['find'])}, {_q(p['replace'])})"]
+    if t == "transform_numbers":
+        c = _q(p["column"])
+        method = p.get("method", "log1p")
+        target = _q(_transform_target(p))
+        bound, inclusive = {"log1p": (-1, False), "log": (0, False), "log10": (0, False), "sqrt": (0, True)}[method]
+        fn = {"log1p": "np.log1p", "log": "np.log", "log10": "np.log10", "sqrt": "np.sqrt"}[method]
+        cmp = ">=" if inclusive else ">"
+        return [f"x = df[{c}].astype(float)",
+                f"df[{target}] = {fn}(x.where(x {cmp} {bound})).round({CALC_DECIMALS})"]
     if t == "round_numbers":
         return [f"df[{_cols(p['columns'])}] = df[{_cols(p['columns'])}].round({p['decimals']})"]
     if t == "handle_outliers":
@@ -134,10 +144,19 @@ def _step_code(op: dict, dtypes: dict[str, str] | None = None, after: dict[str, 
             lines = [f"mean, std = df[{c}].mean(), df[{c}].std()",
                      f"lower, upper = mean - {factor} * std, mean + {factor} * std"]
         if p["action"] == "cap":
+            links = (p.get("linked") or []) if p.get("update_linked", True) else []
+            if links:
+                lines.append(f"capped = df[{c}].notna() & ~df[{c}].between(lower, upper)")
             if dtypes.get(p["column"]) == "integer":  # InsightFlow keeps whole numbers: ceil(lower), floor(upper)
                 lines.append(f"df[{c}] = df[{c}].clip(math.ceil(lower), math.floor(upper))")
             else:
                 lines.append(f"df[{c}] = df[{c}].clip(lower, upper)")
+            for link in links:  # keep total = units × price true in the capped rows
+                a, b, tgt = _q(link["a"]), _q(link["b"]), _q(link["target"])
+                expr = f"(df[{a}] {link['op']} df[{b}]).round({CALC_DECIMALS})"
+                if dtypes.get(link["target"]) == "integer":
+                    expr = f"{expr}.round(0)"
+                lines.append(f"df.loc[capped, {tgt}] = {expr}[capped]")
         else:
             lines.append(f"df = df[df[{c}].isna() | df[{c}].between(lower, upper)]")
         return lines
@@ -198,6 +217,10 @@ def _rule_code(p: dict, dtypes: dict[str, str], after: dict[str, str]) -> list[s
     return lines + [f"df.loc[mask, {t}] = {formula}[mask]"]
 
 
+def _transform_target(p: dict) -> str:
+    return transform_target(TransformNumbers.model_validate(p))
+
+
 def _types(version: VersionRecord | None) -> dict[str, str]:
     return {c["name"]: c.get("dtype", "text") for c in ((version.summary or {}).get("column_info", []) if version else [])}
 
@@ -226,6 +249,8 @@ def pandas_recipe(dataset: DatasetRecord, versions: list[VersionRecord]) -> str:
     ]
     if uses_math:
         lines.append("import math")
+    if any(v.operation.get("type") == "transform_numbers" for v in steps):
+        lines.append("import numpy as np")
     lines += ["import pandas as pd", "", f"MISSING_MARKERS = {list(STANDARD_MISSING)!r}"]
     if uses_div:
         lines += ["", "", "def safe_div(a, b):",

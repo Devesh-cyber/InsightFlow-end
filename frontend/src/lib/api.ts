@@ -2,7 +2,7 @@
 import { config } from "./config";
 import { accessToken, supabase } from "./supabase";
 import type {
-  ChartData, ChartOptions, CheckDef, ChecksView, ColumnDetail, ColumnProfile, Correlations, DatasetDetail, DatasetSummary, Health, Issue, MatchingRows, Me,
+  ChartData, ChartOptions, CheckDef, MLPlan, MLPreview, MLView, ChecksView, ColumnDetail, ColumnProfile, Correlations, DatasetDetail, DatasetSummary, Health, Issue, MatchingRows, Me,
   Operation, Overview, Preview, Relationship, ReviewMark, RowMatch, RowsPage, Versions,
 } from "./types";
 
@@ -148,6 +148,10 @@ export const api = {
   versions: (id: string) => request<Versions>("GET", `${ds(id)}/versions`),
   reviewed: (id: string) => request<{ reviewed: ReviewMark[] }>("GET", `${ds(id)}/reviewed`),
   saveReviewed: (id: string, reviewed: ReviewMark[]) => request<{ reviewed: ReviewMark[] }>("PUT", `${ds(id)}/reviewed`, { body: { reviewed } }),
+  mlView: (id: string) => request<MLView>("GET", `${ds(id)}/ml`),
+  mlSave: (id: string, plan: MLPlan) => request<{ plan: MLPlan }>("PUT", `${ds(id)}/ml/plan`, { body: plan }),
+  mlPreview: (id: string, plan: MLPlan) => request<MLPreview>("POST", `${ds(id)}/ml/preview`, { body: plan }),
+  mlExport: (id: string) => download(`${ds(id)}/ml/export`, {}, "ml_ready.csv"),
   checks: (id: string, version?: number) => request<ChecksView>("GET", `${ds(id)}/checks`, { query: { version } }),
   saveChecks: (id: string, checks: CheckDef[]) => request<ChecksView>("PUT", `${ds(id)}/checks`, { body: { checks } }),
   revert: (id: string, to_version: number, expected_version: number) =>

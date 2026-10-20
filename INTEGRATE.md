@@ -15,6 +15,48 @@ Copy everything over your existing files (it overwrites the changed files and ad
 
 ## What changed (simple version)
 
+**Update 6: ML-ready is locked until the data is clean**
+- The ML-ready page can always be **opened**, but it's **read-only** until both **primary cleaning** and **explore & review** have 0 open items. Items you mark "looks fine, keep it" count as done.
+- While locked, a "Clean the data first" box shows what's left (e.g. "Primary cleaning: 20 left, Explore & review: 4 left") with a **Go to Clean →** button. The rules are greyed out, and there's no preview or download.
+- So the ML-ready file is always built from the **cleaned** data, never the messy upload.
+- The backend enforces it too: saving rules, preview and download return "Finish cleaning first…" (409 `clean_first`).
+- **It re-locks automatically** if a later cleaning step opens new issues. Your saved ML rules are kept.
+- The ③ ML-ready stage says "locked until cleaned" / "unlocked".
+
+
+**Update 5: ML-ready dataset (stage 3) + linked columns**
+- **New page: ML-ready** (sidebar, or ③ in the stage strip → "Open ML-ready →"). Your cleaned dataset isn't changed; it builds a separate file.
+- **You decide per column:** a role (use / drop / target) and an ordered list of steps:
+  - fill missing (mean / median / most common / value, plus an optional "was missing" 0/1 column)
+  - clip (percentiles / IQR / values)
+  - transform (log(1 + x), ln, log10, √, x²)
+  - scale (standard / min-max / robust)
+  - encode (one-hot / frequency / ordinal)
+  - bin (equal-count / equal-width)
+  - date parts (year, month, weekday, …)
+  - true/false → 1/0
+- Steps can be reordered (↑↓) or removed. One-hot and date parts must come last for a column.
+- **New features:** name = formula (e.g. price_per_unit = total ÷ units). They appear in the column list and can get their own steps.
+- **Suggestions are only hints:** each column shows one with a "Use it" link, and there's an "Apply all suggestions" button. Nothing changes unless you choose it.
+- **Target + train/test split** (test %, seed, keep target proportions). With the split on, everything that learns from data is learned from the train rows only (no leakage). If stratifying isn't possible, the app says why.
+- **Live preview:** rows/columns before → after, the split counts, before/after statistics per output column, the first rows, and warnings (text left, empty cells, empty targets).
+- **Download:** `…_ml_ready.csv`, or `…_ml_ready.zip` with `train.csv`, `test.csv`, `plan.json` (your rules + every learned value) and `README.txt`.
+- **The plan is saved automatically** per dataset.
+- The numbers match scikit-learn (checked in tests). **scikit-learn is NOT needed on the server**, only in `requirements-dev.txt` for tests.
+- **Linked columns:** capping `units` or `unit_price` now also recalculates `total_amount` in the capped rows, so they keep agreeing and capping no longer creates new outliers in `total_amount`. There's a checkbox on the outlier step to turn it off. The pandas recipe matches.
+- **Migration `0004_ml_plan.sql`** (run after 0003).
+
+
+**Update 4: log / square-root transforms + CORS fix**
+- **Fix:** the backend now allows the HTTP method `PUT` from the browser (CORS). Without it, "Looks fine, keep it" and saving checks failed with a "server asleep" message.
+- **New step: Transform numbers** with log(1 + x) (handles zeros), ln(x), log10(x) or √x.
+- **Where:** the Custom rule panel ("Then → Transform a number column (log, √)"; whole column, conditions hidden), Quick step → Numbers, and the skew note → "Show options (log transform)".
+- **New column by default** (`total_amount_log`), so the original stays. You can rename it, or untick "keep original" to replace the column.
+- Values outside the range (e.g. negatives for log) become missing, and the preview says how many.
+- **Preview now shows new columns:** a "New column: first rows" table with the source column next to the new one.
+- **Pandas recipe** supports it too (uses numpy).
+
+
 **Update 3: clean in stages, so users don't over-clean**
 - **3 stages, shown in order:** ① Primary cleaning → ② Explore & review → ③ ML-ready (coming soon).
 - **Primary:** types, spellings, spaces, duplicates, invalid or impossible values, broken totals, gaps, your checks. This is what you see first, and the only thing the score counts.
@@ -88,12 +130,12 @@ Copy everything over your existing files (it overwrites the changed files and ad
 
 ## Steps to integrate
 
-1. **Run the database migrations (once, in order).** Supabase Dashboard → SQL Editor → New query → paste `supabase/migrations/0002_checks.sql` → Run, then do the same with `0003_reviewed.sql`. Both are safe to run twice. Without them, saved checks and "Looks fine" fail.
+1. **Run the database migrations (once, in order).** Supabase Dashboard → SQL Editor → New query → paste `supabase/migrations/0002_checks.sql` → Run, then do the same with `0003_reviewed.sql` and `0004_ml_plan.sql`. All are safe to run twice. Without them, saved checks, "Looks fine" and the ML-ready page fail.
 2. **Backend.** Copy `backend/` over your backend, then:
    ```bash
    cd backend
-   pip install -r requirements-dev.txt     # adds pandas (tests only; production requirements are unchanged)
-   pytest -q                               # expect: 377 passed, 14 skipped
+   pip install -r requirements-dev.txt     # adds pandas + scikit-learn (tests only; production requirements are unchanged)
+   pytest -q                               # expect: 420 passed, 15 skipped
    ```
    No new environment variables. Old cached health results are recomputed automatically (the engine version is part of the cache key).
 3. **Frontend.** Copy `frontend/src/` over your `src/`, then:
@@ -135,6 +177,21 @@ Upload the original anomaly CSV, then:
 | 24 | ② tab → the `total_amount` note | It says it's calculated from units × unit_price and offers no Cap |
 | 25 | ③ **ML-ready** | Coming-soon card with a checklist and a link to Export |
 | 26 | Report | Primary issues, secondary notes and "Reviewed and kept" are separate sections |
+| 27 | Custom rule → Then: **Transform a number column** → `total_amount`, log(1 + x) → Preview | "Whole column" (no conditions). Columns 10 → 11, and a "New column: first rows" table with total_amount next to total_amount_log |
+| 28 | ② Explore & review → the skew note on total_amount → **Show options (log transform)** | "Add a log(1 + x) column 'total_amount_log'" |
+| 29 | Quick step → **Transform numbers (log, √)** → `unit_price`, √x → Preview | Warning that 1 value isn't ≥ 0 (the −499 price) and becomes missing |
+| 30 | Click **Looks fine, keep it** in your real browser | Works (no "server asleep"). This needed the CORS fix |
+| 31 | Quick step → Handle outliers → `unit_price`, cap → Preview | Warning "Also recalculated total_amount = units × unit_price in the capped row(s)". No "breaks total" warning |
+| 32 | Sidebar → **ML-ready** on a fresh upload | "Clean the data first" with how many items are left and a Go to Clean button. Everything greyed out; Download disabled |
+| 32b | Fix or "keep" every primary **and** secondary item in Clean, then open **ML-ready** again | Unlocked: column list on the left, rules on the right, a preview at the bottom |
+| 32c | After unlocking, apply a cleaning step that creates a new issue (e.g. a custom rule that empties some cells) | ML-ready is locked again; your rules are still there |
+| 33 | Click `unit_price` → Add a step: Clip, then Scale → robust | The list shows "clip 1–99th pct → scale robust". In the preview, unit_price's max goes from 999,999.99 to a small number |
+| 34 | `order_id` → **Drop**; Target column = `product_category` | order_id is struck through. product_category is the last column with a "target" chip |
+| 35 | `city` → Fill missing (tick the flag) → Encode one-hot | city_Mumbai… and city_was_missing appear in the preview. "No more steps can follow" |
+| 36 | **+ New feature** → price_per_unit = total_amount ÷ units | A new column with "new". The preview warns about empty cells (units = 0 → division by zero) |
+| 37 | **Apply all suggestions** | IDs, emails and total_amount (redundant) dropped; text one-hot; numbers scaled. Then edit anything |
+| 38 | Tick **Split into train and test** | "N train · M test". If stratifying isn't possible it says why (e.g. 'Fashion ' occurs once: clean it first) |
+| 39 | **Download train/test (ZIP)** | Zip with train.csv, test.csv, plan.json and README.txt. Reload the page: your rules are still there |
 
 Edge cases worth a click:
 - Save a check on a column, then drop that column. The check shows "can't run", nothing crashes.

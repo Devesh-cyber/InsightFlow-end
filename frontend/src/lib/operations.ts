@@ -60,6 +60,7 @@ export const OP_FORMS: OpForm[] = [
       { key: "method", label: "Method", kind: "select", default: "iqr", options: [["iqr", "IQR rule (Q1 − k·IQR, Q3 + k·IQR)"], ["zscore", "Z-score (|z| > k)"]] },
       { key: "factor", label: "k", kind: "number", default: 1.5, min: 0.5, max: 10, step: 0.5 },
       { key: "action", label: "Then", kind: "select", default: "cap", options: [["cap", "cap to the bounds (keeps rows)"], ["remove", "remove those rows"]] },
+      { key: "update_linked", label: "When capping, also recalculate linked columns (e.g. total = units × price)", kind: "bool", default: true },
     ] },
 
   { type: "convert_type", label: "Change column type", group: "Types & text", help: "Convert text to numbers, dates or true/false.",
@@ -90,6 +91,15 @@ export const OP_FORMS: OpForm[] = [
       { key: "match", label: "Match", kind: "select", default: "exact", options: [["exact", "whole value"], ["contains", "anywhere in the text"]] },
     ] },
 
+  { type: "transform_numbers", label: "Transform numbers (log, √)", group: "Numbers",
+    help: "Reduce skew: log(1 + x) works with zeros; log needs values above 0; √ needs 0 or more. Row by row, so no train/test leakage.",
+    fields: [
+      { key: "column", label: "Column", kind: "column", types: NUMERIC },
+      { key: "method", label: "Transform", kind: "select", default: "log1p", options: [
+        ["log1p", "log(1 + x): handles zeros"], ["log", "ln(x): values must be above 0"], ["log10", "log10(x)"], ["sqrt", "√x: milder"]] },
+      { key: "keep_original", label: "Keep the original column (add a new one)", kind: "bool", default: true },
+      { key: "new_name", label: "New column name (optional)", kind: "text", optional: true, placeholder: "e.g. total_amount_log", showIf: ["keep_original", "true"] },
+    ] },
   { type: "round_numbers", label: "Round numbers", group: "Numbers", help: "Round to a number of decimal places.",
     fields: [
       { key: "columns", label: "Columns", kind: "columns", types: NUMERIC },

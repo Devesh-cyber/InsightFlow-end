@@ -10,7 +10,7 @@ export type StageTab = Stage | "ml";
 export const STAGE_INFO: Record<StageTab, { n: number; title: string; short: string }> = {
   primary: { n: 1, title: "Primary cleaning", short: "Fix wrong types, spellings, duplicates, invalid values and gaps." },
   secondary: { n: 2, title: "Explore & review", short: "Look at outliers and skew while exploring. Often real: check before changing." },
-  ml: { n: 3, title: "ML-ready", short: "Prepare the clean data for a model." },
+  ml: { n: 3, title: "ML-ready", short: "Your rules per column → a dataset ready for model training." },
 };
 
 /** The stage to open by default: primary until it's done, then secondary. */
@@ -31,7 +31,7 @@ export function StageStrip({ health, active, onSelect }: { health: Health; activ
   const status: Record<StageTab, string> = {
     primary: !st ? "" : primaryDone ? "done ✓" : `${st.primary.open} to fix`,
     secondary: !st ? "" : secondaryDone ? (primaryDone ? "done ✓" : "nothing yet") : `${st.secondary.open} to look at`,
-    ml: "coming soon",
+    ml: primaryDone && secondaryDone ? "unlocked" : "locked until cleaned",
   };
   return (
     <nav className="stages" aria-label="Cleaning stages">
@@ -69,17 +69,18 @@ export function StageIssues({ health, stage, onStage }: { health: Health; stage:
   if (stage === "ml") {
     return (
       <div className="card stack" style={{ "--gap": "10px" } as React.CSSProperties}>
-        <div className="strong">ML-ready preparation is coming soon</div>
+        <div className="strong">Make an ML-ready dataset</div>
         <p className="small muted">
-          Next we'll ask for your target column and the kind of model (tree-based or linear), then suggest only what that model needs:
-          encoding categories, scaling, log transforms for skewed columns. You'll be able to export those steps as a scikit-learn
-          pipeline, so they're learned from the training data only (no data leakage).
+          Decide, column by column, what goes into a model: keep or drop it, fill gaps, clip, transform (log), scale, encode
+          categories, split dates, and create new features. Then download one CSV, or train and test files.
         </p>
         <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
           <li>Primary cleaning: {primaryOpen === 0 ? "done ✓" : `${primaryOpen} issue(s) left`} {primaryOpen > 0 && <button className="link-btn" onClick={() => onStage("primary")}>go →</button>}</li>
           <li>Explore & review: {st?.secondary.open ? `${st.secondary.open} item(s) to look at` : "done ✓"} {!!st?.secondary.open && <button className="link-btn" onClick={() => onStage("secondary")}>go →</button>}</li>
         </ul>
-        <p className="small">For now, when both are done your cleaned data is ready: <Link to={`/d/${id}/export`}>download it from Export</Link>.</p>
+        {primaryOpen === 0 && !st?.secondary.open
+          ? <div><Link className="btn primary" to={`/d/${id}/ml`}>Open ML-ready →</Link></div>
+          : <p className="small" style={{ margin: 0 }}>🔒 Unlocks when both are done. <Link to={`/d/${id}/ml`}>Look at the ML-ready page</Link> (read-only for now).</p>}
       </div>
     );
   }

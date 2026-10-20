@@ -125,15 +125,21 @@ export function fromCondition(c: RuleCondition): DraftCondition {
   };
 }
 
-export type RuleAction = "remove_rows" | "keep_rows" | "set_missing" | "set_value" | "clamp" | "calculate";
+export type RuleAction = "remove_rows" | "keep_rows" | "set_missing" | "set_value" | "clamp" | "calculate" | "transform";
 
-export const ACTIONS: { value: RuleAction; label: string; needsTarget: boolean; conditionsOptional: boolean }[] = [
+export const ACTIONS: { value: RuleAction; label: string; needsTarget: boolean; conditionsOptional: boolean; noConditions?: boolean }[] = [
   { value: "remove_rows", label: "Remove those rows", needsTarget: false, conditionsOptional: false },
   { value: "keep_rows", label: "Keep only those rows", needsTarget: false, conditionsOptional: false },
   { value: "set_missing", label: "Make a column empty in those rows", needsTarget: true, conditionsOptional: false },
   { value: "set_value", label: "Set a column to a value in those rows", needsTarget: true, conditionsOptional: false },
   { value: "clamp", label: "Keep a number column within limits", needsTarget: true, conditionsOptional: true },
   { value: "calculate", label: "Recalculate a column with a formula", needsTarget: true, conditionsOptional: true },
+  // whole column only: transforming some rows would mix two scales in one column
+  { value: "transform", label: "Transform a number column (log, √)", needsTarget: true, conditionsOptional: true, noConditions: true },
+];
+
+export const TRANSFORMS: [string, string][] = [
+  ["log1p", "log(1 + x): handles zeros"], ["log", "ln(x): values must be above 0"], ["log10", "log10(x)"], ["sqrt", "√x: milder"],
 ];
 
 export interface DraftAction {
@@ -143,11 +149,21 @@ export interface DraftAction {
   min: string;
   max: string;
   formula: FormulaTerm[];
+  method?: string;
+  keepOriginal?: boolean;
+  newName?: string;
 }
 
 export function actionProblem(a: DraftAction, columns: ColumnInfo[], conditionCount: number): string | null {
   const spec = ACTIONS.find((x) => x.value === a.action)!;
   if (!spec.conditionsOptional && conditionCount === 0) return "Add at least one condition.";
+  if (a.action === "transform") {
+    const col = columns.find((c) => c.name === a.target);
+    if (!col) return "Choose the column to transform.";
+    if (!isNumeric(col.dtype)) return "Transforms only work on number columns.";
+    if (a.keepOriginal !== false && a.newName?.trim() && columns.some((c) => c.name === a.newName!.trim())) return `A column named '${a.newName!.trim()}' already exists.`;
+    return null;
+  }
   if (spec.needsTarget && !columns.some((c) => c.name === a.target)) return "Choose the column to change.";
   const target = columns.find((c) => c.name === a.target);
   if (a.action === "set_value") {
@@ -164,6 +180,11 @@ export function actionProblem(a: DraftAction, columns: ColumnInfo[], conditionCo
 }
 
 export function toOperation(conditions: DraftCondition[], combine: "and" | "or", a: DraftAction, columns: ColumnInfo[]): Operation {
+  if (a.action === "transform") {
+    const params: Record<string, unknown> = { column: a.target, method: a.method ?? "log1p", keep_original: a.keepOriginal !== false };
+    if (a.keepOriginal !== false && a.newName?.trim()) params.new_name = a.newName.trim();
+    return { type: "transform_numbers", params };
+  }
   const spec = ACTIONS.find((x) => x.value === a.action)!;
   const params: Record<string, unknown> = { conditions: conditions.map((c) => toCondition(c, columns)), combine, action: a.action };
   if (spec.needsTarget) params.target = a.target;

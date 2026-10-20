@@ -32,7 +32,7 @@ def test_calculated_column_outliers_offer_no_cap():
     assert issue["options"] == [] and "units × unit_price" in issue["message"]
     price = next(i for i in find_issues(frame()) if i["id"] == "outliers:unit_price")
     cap = next(o for o in price["options"] if o["operation"]["params"]["action"] == "cap")
-    assert "Breaks the formula" in cap["note"] and "total_amount" in price["message"]
+    assert "Also updates the linked total" in cap["note"] and "recalculates total_amount" in price["message"]
 
 
 def test_skew_note_only_for_skewed_columns():
@@ -40,7 +40,9 @@ def test_skew_note_only_for_skewed_columns():
     df = pl.DataFrame({"amount": [round(rnd.lognormvariate(3, 1), 2) for _ in range(300)],
                        "height": [round(rnd.gauss(170, 8), 1) for _ in range(300)]})
     found = {i["id"]: i for i in find_issues(df)}
-    assert found["skewed:amount"]["stage"] == "secondary" and found["skewed:amount"]["options"] == []
+    assert found["skewed:amount"]["stage"] == "secondary"
+    op = found["skewed:amount"]["options"][0]["operation"]
+    assert op == {"type": "transform_numbers", "params": {"column": "amount", "method": "log1p", "keep_original": True}}
     assert "skewed:height" not in found
 
 
@@ -105,3 +107,15 @@ def test_a_single_wrong_value_is_not_called_skew():
     found = {i["id"] for i in find_issues(frame())}
     assert "skewed:units" not in found and "skewed:unit_price" not in found  # 10,000 and 999,999.99 are outliers
     assert "outliers:units" in found and "outliers:unit_price" in found
+
+
+def test_cap_on_base_column_keeps_formula_and_can_be_turned_off():
+    from app.engine.operations import run_operation
+    df = frame().filter(pl.col("total_amount").is_not_null())
+    r = run_operation(df, "handle_outliers", {"column": "unit_price", "action": "cap"})
+    assert r.operation["params"]["linked"][0] == {"target": "total_amount", "a": "units", "b": "unit_price", "op": "*"}
+    row = r.df.filter(pl.col("order_id") == "ORD-0071").row(0, named=True)
+    assert abs(row["total_amount"] - row["units"] * row["unit_price"]) < 0.011
+    assert any("Also recalculated total_amount" in w for w in r.warnings)
+    off = run_operation(df, "handle_outliers", {"column": "unit_price", "action": "cap", "update_linked": False})
+    assert off.df.filter(pl.col("order_id") == "ORD-0071")["total_amount"].item() == 58934.85

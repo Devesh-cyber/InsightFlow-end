@@ -59,6 +59,8 @@ class DatasetRepository(Protocol):
     def set_checks(self, user_id: UUID, dataset_id: UUID, checks: list[dict]) -> list[dict] | None: ...
     def get_context(self, user_id: UUID, dataset_id: UUID) -> dict | None: ...
     def set_reviewed(self, user_id: UUID, dataset_id: UUID, reviewed: list[dict]) -> list[dict] | None: ...
+    def get_ml_plan(self, user_id: UUID, dataset_id: UUID) -> dict | None: ...
+    def set_ml_plan(self, user_id: UUID, dataset_id: UUID, plan: dict) -> dict | None: ...
 
 
 _DATASET_COLUMNS = """
@@ -340,6 +342,23 @@ class PostgresRepository:
                 (Jsonb(reviewed), dataset_id, user_id),
             ).fetchone()
         return None if row is None else list(row[0] or [])
+
+    def get_ml_plan(self, user_id: UUID, dataset_id: UUID) -> dict | None:
+        """The user's ML-ready rules ({} if none yet), or None if the dataset isn't theirs."""
+        def query(conn):
+            return conn.execute(
+                "select ml_plan from public.datasets where id = %s and user_id = %s", (dataset_id, user_id)
+            ).fetchone()
+        row = self._read(query)
+        return None if row is None else dict(row[0] or {})
+
+    def set_ml_plan(self, user_id: UUID, dataset_id: UUID, plan: dict) -> dict | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "update public.datasets set ml_plan = %s where id = %s and user_id = %s returning ml_plan",
+                (Jsonb(plan), dataset_id, user_id),
+            ).fetchone()
+        return None if row is None else dict(row[0] or {})
 
     @staticmethod
     def _insert_version(conn, dataset_id: UUID, number: int, version: NewVersion) -> None:

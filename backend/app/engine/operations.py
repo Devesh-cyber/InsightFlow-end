@@ -137,11 +137,42 @@ class RoundNumbers(Params):
     decimals: int = Field(ge=0, le=10)
 
 
+class TransformNumbers(Params):
+    """Log / square-root transform of a whole number column (row by row, so no train/test leakage)."""
+    column: str
+    method: Literal["log1p", "log", "log10", "sqrt"] = "log1p"
+    keep_original: bool = True
+    new_name: str | None = Field(default=None, max_length=255)
+
+
+TRANSFORM_TEXT = {"log1p": "log(1 + x)", "log": "ln(x)", "log10": "log10(x)", "sqrt": "√x"}
+TRANSFORM_SUFFIX = {"log1p": "log", "log": "ln", "log10": "log10", "sqrt": "sqrt"}
+TRANSFORM_DOMAIN = {"log1p": ("> -1", -1.0, False), "log": ("> 0", 0.0, False), "log10": ("> 0", 0.0, False),
+                    "sqrt": ("≥ 0", 0.0, True)}
+
+
+def transform_target(p: "TransformNumbers") -> str:
+    if not p.keep_original:
+        return p.column
+    return (p.new_name or "").strip() or f"{p.column}_{TRANSFORM_SUFFIX[p.method]}"
+
+
+class LinkedColumn(Params):
+    target: str
+    a: str
+    b: str
+    op: Literal["*", "+"]
+
+
 class HandleOutliers(Params):
     column: str
     method: Literal["iqr", "zscore"] = "iqr"
     factor: float | None = Field(default=None, gt=0, le=10)
     action: Literal["cap", "remove"]
+    # When capping a column used in a formula (total = units × price), recalculate the formula's result in the
+    # capped rows so the columns keep agreeing. `linked` is filled in by the engine (and replayed by the recipe).
+    update_linked: bool = True
+    linked: list[LinkedColumn] | None = None
 
 
 class ApplyRule(Params):
@@ -477,6 +508,30 @@ def _round_numbers(df, p: RoundNumbers):
     return df.with_columns([pl.col(c).round(p.decimals) for c in floats]), warnings
 
 
+def _transform_numbers(df, p: TransformNumbers):
+    _missing_columns(df, [p.column])
+    series = df.get_column(p.column)
+    if not is_numeric(series.dtype):
+        raise OperationError(f"'{p.column}' is {dtype_label(series.dtype)}; transforms need a number column "
+                             "(use 'Change column type' first).")
+    target = transform_target(p)
+    if p.keep_original and target in df.columns:
+        raise OperationError(f"A column named '{target}' already exists. Choose another name.")
+    words, bound, inclusive = TRANSFORM_DOMAIN[p.method]
+    x = pl.col(p.column).cast(pl.Float64)
+    valid = (x >= bound) if inclusive else (x > bound)
+    fn = {"log1p": x.log1p(), "log": x.log(), "log10": x.log(10), "sqrt": x.sqrt()}[p.method]
+    expr = pl.when(valid).then(fn).otherwise(None).round(CALC_DECIMALS)
+    invalid = int(df.select((pl.col(p.column).is_not_null() & ~valid.fill_null(True)).sum()).item())
+    warnings = []
+    if invalid:
+        warnings.append(f"{invalid} value(s) in '{p.column}' aren't {words}, so {TRANSFORM_TEXT[p.method]} isn't defined "
+                        "for them; they become missing." + (" log(1 + x) works with zeros." if p.method in ("log", "log10") else ""))
+    if not p.keep_original:
+        warnings.append(f"'{p.column}' is replaced by its {TRANSFORM_TEXT[p.method]} values. Formulas that use it no longer hold.")
+    return df.with_columns(expr.alias(target)), warnings
+
+
 def _handle_outliers(df, p: HandleOutliers):
     _missing_columns(df, [p.column])
     series = df.get_column(p.column)
@@ -500,14 +555,35 @@ def _handle_outliers(df, p: HandleOutliers):
     clipped = col.cast(pl.Float64).clip(lower, upper)
     if series.dtype.is_integer():
         clipped = col.clip(int(-(-lower // 1)), int(upper // 1))  # stay integer: ceil(lower), floor(upper)
+    if p.update_linked and p.linked is None:
+        from app.engine.validity import find_relationships  # local import: validity uses this module's helpers
+        p.linked = [LinkedColumn(**{k: r[k] for k in ("target", "a", "b", "op")})
+                    for r in find_relationships(df) if p.column in (r["a"], r["b"])]
+    links = p.linked if p.update_linked else []
+    # which rows get capped, decided on the values BEFORE clipping
+    changed = df.select((col.is_not_null() & ~col.is_between(lower, upper)).alias("m")).to_series()
     notes = [f"Bounds used: {lower:.4g} to {upper:.4g}.",
-             "Capping replaces real values with the limit (an estimate, not a correction). "
-             "Columns calculated from this one are not updated."]
+             "Capping replaces real values with the limit (an estimate, not a correction)."]
+    out = df.with_columns(clipped.alias(p.column))
+    for link in links or []:
+        if not {link.target, link.a, link.b} <= set(df.columns):
+            continue
+        formula = (pl.col(link.a) * pl.col(link.b)) if link.op == "*" else (pl.col(link.a) + pl.col(link.b))
+        target = df.get_column(link.target)
+        recalculated = formula.cast(pl.Float64).round(CALC_DECIMALS)
+        if target.dtype.is_integer():
+            recalculated = recalculated.round(0).cast(target.dtype)
+        out = out.with_columns(pl.when(pl.lit(changed)).then(recalculated).otherwise(pl.col(link.target)).alias(link.target))
+        n = int(changed.sum())
+        notes.append(f"Also recalculated {link.target} = {link.a} {'×' if link.op == '*' else '+'} {link.b} in the {n} capped row(s), "
+                     "so the columns still agree (these are estimates too).")
+    if not links:
+        notes[-1] += " Columns calculated from this one are not updated."
     values = series.drop_nulls()
     if lower < 0 and len(values) and int((values < 0).sum()) <= 0.05 * len(values) and int((values < 0).sum()):
         notes.append(f"The lower limit is below 0, so negative values stay negative. "
                      f"If '{p.column}' can't be negative, use a custom rule (e.g. {p.column} < 0 → mark as missing).")
-    return df.with_columns(clipped.alias(p.column)), notes
+    return out, notes
 
 
 def _rule_mask(df, p: ApplyRule) -> pl.Series:
@@ -675,6 +751,10 @@ OPERATIONS: dict[str, OperationSpec] = {
     "replace_values": OperationSpec(ReplaceValues, _replace_values,
                                     lambda p: f"Replace {p.find!r} with {p.replace!r} in '{p.column}' ({p.match} match)"),
     "round_numbers": OperationSpec(RoundNumbers, _round_numbers, lambda p: f"Round {_cols(p.columns)} to {p.decimals} decimal(s)"),
+    "transform_numbers": OperationSpec(
+        TransformNumbers, _transform_numbers,
+        lambda p: (f"Transform '{p.column}' with {TRANSFORM_TEXT[p.method]} into '{transform_target(p)}'" if p.keep_original
+                   else f"Replace '{p.column}' with {TRANSFORM_TEXT[p.method]}")),
     "handle_outliers": OperationSpec(HandleOutliers, _handle_outliers,
                                      lambda p: f"{'Cap' if p.action == 'cap' else 'Remove'} outliers in '{p.column}' ({p.method})"),
     "apply_rule": OperationSpec(ApplyRule, _apply_rule, _describe_rule),
@@ -790,6 +870,17 @@ def run_operation(df: pl.DataFrame, op_type: str, params: dict | None, *, with_s
                     }
                     for r in rows.iter_rows(named=True)
                 ],
+            }
+        if added_cols and after.height:
+            # new columns (calculate into a new name, transforms…): show their values next to their source
+            source = [validated.column] if op_type == "transform_numbers" and validated.column in after_cols else []
+            if op_type == "apply_rule" and validated.formula:
+                source = [t.column for t in validated.formula if not isinstance(t, str) and t.column in after_cols]
+            cols = list(dict.fromkeys(source + added_cols))[:SAMPLE_MAX_COLUMNS]
+            rows = after.head(SAMPLE_ROWS)
+            samples["new_columns"] = {
+                "columns": cols, "added": added_cols,
+                "rows": [{"row": int(r[ROW_ID]) + 1, "values": to_json([r[c] for c in cols])} for r in rows.iter_rows(named=True)],
             }
     if effect["no_change"] and not warnings:
         warnings.append("This operation wouldn't change anything.")

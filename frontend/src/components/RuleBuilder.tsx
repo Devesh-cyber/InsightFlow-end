@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  ACTIONS, OP_TEXT, actionProblem, conditionProblem, emptyCondition, isTextOp, opsFor, toCondition, toOperation, valueShape,
+  ACTIONS, OP_TEXT, TRANSFORMS, actionProblem, conditionProblem, emptyCondition, isTextOp, opsFor, toCondition, toOperation, valueShape,
   type DraftAction, type DraftCondition, type RuleAction,
 } from "../lib/rules";
 import type { ColumnInfo, FormulaOperand, FormulaTerm, Operation, RuleCondition } from "../lib/types";
@@ -153,16 +153,16 @@ export function RuleBuilder({ columns, onPreview, onSaveCheck, saving }: {
 }) {
   const [conditions, setConditions] = useState<DraftCondition[]>(() => [emptyCondition(columns)]);
   const [combine, setCombine] = useState<"and" | "or">("and");
-  const [action, setAction] = useState<DraftAction>({ action: "remove_rows", target: columns[0]?.name ?? "", value: "", min: "", max: "", formula: [] });
+  const [action, setAction] = useState<DraftAction>({ action: "remove_rows", target: columns[0]?.name ?? "", value: "", min: "", max: "", formula: [], method: "log1p", keepOriginal: true, newName: "" });
   const [checkName, setCheckName] = useState("");
   const spec = ACTIONS.find((a) => a.value === action.action)!;
   const numeric = columns.filter((c) => c.dtype === "integer" || c.dtype === "float");
-  const targets = action.action === "clamp" || action.action === "calculate" ? numeric : columns;
-  const problem = conditionsProblem(conditions, columns) ?? actionProblem(action, columns, conditions.length);
+  const targets = action.action === "clamp" || action.action === "calculate" || action.action === "transform" ? numeric : columns;
+  const problem = spec.noConditions ? actionProblem(action, columns, 0) : conditionsProblem(conditions, columns) ?? actionProblem(action, columns, conditions.length);
   const checkProblem = conditions.length === 0 ? "Add a condition." : conditionsProblem(conditions, columns) ?? (checkName.trim() ? null : "Name the check.");
 
   const chooseAction = (value: RuleAction) => {
-    const needsNumber = value === "clamp" || value === "calculate";
+    const needsNumber = value === "clamp" || value === "calculate" || value === "transform";
     const ok = needsNumber ? numeric.some((c) => c.name === action.target) : true;
     const firstCondition = conditions[0]?.column;
     setAction({ ...action, action: value, target: ok ? action.target || firstCondition || "" : numeric[0]?.name ?? "" });
@@ -170,13 +170,22 @@ export function RuleBuilder({ columns, onPreview, onSaveCheck, saving }: {
 
   return (
     <form className="card stack" style={{ "--gap": "14px" } as React.CSSProperties}
-      onSubmit={(e) => { e.preventDefault(); if (!problem) onPreview(toOperation(conditions, combine, action, columns), "Custom rule"); }}>
-      <div>
-        <div className="strong">If a row matches</div>
-        <p className="xs muted" style={{ marginTop: 2 }}>Empty cells never match a comparison; use "is empty" to find them.</p>
-      </div>
-      <ConditionsEditor conditions={conditions} combine={combine} columns={columns} onChange={setConditions} onCombine={setCombine} optional={spec.conditionsOptional} />
-      {conditions.length > 0 && !conditionsProblem(conditions, columns) && (
+      onSubmit={(e) => { e.preventDefault(); if (!problem) onPreview(toOperation(conditions, combine, action, columns), spec.noConditions ? "Transform" : "Custom rule"); }}>
+      {spec.noConditions ? (
+        <div>
+          <div className="strong">Whole column</div>
+          <p className="xs muted" style={{ marginTop: 2 }}>A transform applies to every row: transforming only some rows would mix two scales in one column.</p>
+        </div>
+      ) : (
+        <>
+          <div>
+            <div className="strong">If a row matches</div>
+            <p className="xs muted" style={{ marginTop: 2 }}>Empty cells never match a comparison; use "is empty" to find them.</p>
+          </div>
+          <ConditionsEditor conditions={conditions} combine={combine} columns={columns} onChange={setConditions} onCombine={setCombine} optional={spec.conditionsOptional} />
+        </>
+      )}
+      {!spec.noConditions && conditions.length > 0 && !conditionsProblem(conditions, columns) && (
         <ShowRows label="Show matching rows" emptyText="No rows match these conditions."
           match={{ conditions: conditions.map((c) => toCondition(c, columns)), combine }} />
       )}
@@ -214,6 +223,27 @@ export function RuleBuilder({ columns, onPreview, onSaveCheck, saving }: {
           <span>{action.target || "Column"} =</span>
           <FormulaBuilder label="Calculation" terms={action.formula} columns={columns} onChange={(formula) => setAction({ ...action, formula })} />
         </div>
+      )}
+      {action.action === "transform" && (
+        <>
+          <label className="field">Transform
+            <select className="select" aria-label="Transform" value={action.method ?? "log1p"} onChange={(e) => setAction({ ...action, method: e.target.value })}>
+              {TRANSFORMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <label className="check small">
+            <input type="checkbox" checked={action.keepOriginal !== false} onChange={(e) => setAction({ ...action, keepOriginal: e.target.checked })} />
+            Keep the original column (add a new one)
+          </label>
+          {action.keepOriginal !== false && (
+            <label className="field">New column name (optional)
+              <input className="input" aria-label="New column name" value={action.newName ?? ""}
+                placeholder={action.target ? `${action.target}_${{ log1p: "log", log: "ln", log10: "log10", sqrt: "sqrt" }[action.method ?? "log1p"]}` : "e.g. amount_log"}
+                onChange={(e) => setAction({ ...action, newName: e.target.value })} />
+            </label>
+          )}
+          <p className="xs muted">Calculated row by row, so it's safe before a train/test split. Values outside the transform's range become missing (the preview tells you how many).</p>
+        </>
       )}
       {action.action === "clamp" && <p className="xs muted">Values outside the limits are set to the nearest limit. These are estimates, and the report marks them.</p>}
 

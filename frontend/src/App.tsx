@@ -16,6 +16,7 @@ const Charts = lazy(() => import("./pages/Charts"));
 const Clean = lazy(() => import("./pages/Clean"));
 const History = lazy(() => import("./pages/History"));
 const Export = lazy(() => import("./pages/Export"));
+const MLReady = lazy(() => import("./pages/MLReady"));
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="relationships" element={<Relationships />} />
           <Route path="charts" element={<Charts />} />
           <Route path="clean" element={<Clean />} />
+          <Route path="ml" element={<MLReady />} />
           <Route path="history" element={<History />} />
           <Route path="export" element={<Export />} />
         </Route>

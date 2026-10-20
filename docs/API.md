@@ -91,7 +91,8 @@ Send any `option.operation` straight to `/preview`, then `/apply`.
 **effect**: `rows_before, rows_after, rows_removed, columns_before, columns_after, columns_removed, columns_added,
 columns_renamed, cells_changed, changed_per_column, dtype_changes{col:{from,to}}, no_change`.
 
-**samples**: `changed_rows{columns, rows[{row, before[], after[]}]}` and/or `removed_rows{columns, rows[{row, values[]}]}`
+**samples**: `changed_rows{columns, rows[{row, before[], after[]}]}`, `removed_rows{columns, rows[{row, values[]}]}`
+and/or `new_columns{columns, added[], rows[{row, values[]}]}` (new columns next to their source)
 (≤20 rows each; `row` is 1-based in the version being changed).
 
 Apply errors: 422 `no_change`, 422 `would_empty_dataset`, 422 `invalid_parameters`, 422 `invalid_operation`, 409 `version_conflict`.
@@ -114,8 +115,9 @@ Apply errors: 422 `no_change`, 422 `would_empty_dataset`, 422 `invalid_parameter
 | `change_case` | `columns: [str]`, `case: lower\|upper\|title` |
 | `replace_values` | `column`, `find`, `replace`, `match: exact\|contains` |
 | `round_numbers` | `columns: [str]`, `decimals: 0-10` |
-| `handle_outliers` | `column`, `method: iqr\|zscore`, `factor` (default 1.5 / 3), `action: cap\|remove` |
+| `handle_outliers` | `column`, `method: iqr\|zscore`, `factor` (default 1.5 / 3), `action: cap\|remove`, `update_linked` (default true: when capping a column used in a detected formula like `total = units × price`, recalculate the formula's result in the capped rows; the engine records the formulas it used in `linked`) |
 | `standardize_values` | `column`, `mapping: {spelling: canonical}` |
+| `transform_numbers` | `column`, `method: log1p\|log\|log10\|sqrt` (default log1p), `keep_original` (default true → new column), `new_name` (default `<column>_log` / `_ln` / `_log10` / `_sqrt`). Values outside the domain become missing (with a warning). Whole column only. |
 | `apply_rule` | `conditions: [Condition]` (0–10), `combine: and\|or`, `action: remove_rows\|keep_rows\|set_value\|set_missing\|clamp\|calculate`, `target` (column to change; default = first condition column), `value` (set_value), `min`/`max` (clamp), `formula` (calculate) |
 
 **Condition**: `{column, op, value?, value2?, ignore_case?, formula?, tolerance?}`. `op`:
@@ -150,6 +152,30 @@ A mark only applies while the issue's `fingerprint` matches; if the issue change
 
 **Issue categories**: `missing_values duplicates empty_column constant_column convert_to_number convert_to_date outliers`
 plus validity checks `duplicate_id invalid_values broken_relationship inconsistent_spelling`, `check_failed check_error`, and `skewed` (secondary).
+
+## ML-ready dataset (stage 3)
+
+The user's own rules per column, applied to the **current version** (the cleaned data is not changed).
+**Locked until the data is clean:** `PUT plan`, `preview` and `export` return **409 `clean_first`** while primary cleaning or
+explore & review has open items (issues marked "looks fine" count as done); `GET /ml` always works and returns
+`readiness: {locked, primary_open, secondary_open, version}`. A cleaning step that opens new issues locks it again (the plan is kept).
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/v1/datasets/{id}/ml` | | `{version, rows, plan, suggestions{column: {dtype, role, suggested_role, role_reason, steps[], reason, missing, unique}}}` |
+| PUT | `/v1/datasets/{id}/ml/plan` | plan | `{plan}` |
+| POST | `/v1/datasets/{id}/ml/preview` | plan (unsaved is fine) | `{version, shape_before, shape_after, split{how, train, test}?, target, columns[{name, source, before, after}], preview{columns, rows}, warnings, learned}` |
+| GET | `/v1/datasets/{id}/ml/export` | | saved plan → `<name>_vN_ml_ready.csv`, or `.zip` (`train.csv`, `test.csv`, `plan.json`, `README.txt`) when the split is on |
+
+**Plan**: `{columns: {name: {role: use|drop|target, steps: [...]}}, features: [{name, formula}], split: {enabled, test_size 0.05-0.5, seed, stratify}}`.
+At most one target (it becomes the last column; rows with an empty target are left out). Features are computed first (formula of numeric columns).
+**Steps** (in order, per column): `fill_missing{strategy mean|median|mode|constant, value, add_indicator}`,
+`clip{method percentile|iqr|values, lower, upper, factor}`, `transform{method log1p|log|log10|sqrt|square}`,
+`scale{method standard|minmax|robust}`, `encode{method onehot|frequency|ordinal, max_categories, drop_first, order}`,
+`bin{method quantile|equal_width, bins}`, `date_parts{parts[year|month|day|weekday|dayofyear|is_weekend|hour]}`, `to_number{}`.
+One-hot and date parts split the column, so nothing can follow them. Steps that learn (fill, clip, scale, encode, bin) learn from
+the train rows when the split is on; the values are returned in `learned` / `plan.json`. Formulas match scikit-learn defaults
+(population std, linear percentiles, A→Z ordinal). Needs migration `0004_ml_plan.sql`.
 
 ## Export
 

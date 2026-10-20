@@ -59,7 +59,7 @@ export function useReview() {
   const id = useDatasetId();
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({
-    predicate: (q) => q.queryKey[0] === "ds" && q.queryKey[1] === id && ["health", "recs"].includes(String(q.queryKey[3])),
+    predicate: (q) => q.queryKey[0] === "ds" && q.queryKey[1] === id && ["health", "recs", "ml"].includes(String(q.queryKey[3])),
   });
   return useMutation({
     mutationFn: async ({ issue, keep }: { issue: Issue; keep: boolean }) => {
@@ -78,7 +78,7 @@ export function useSaveChecks() {
   return useMutation({
     mutationFn: (checks: CheckDef[]) => api.saveChecks(id, checks),
     onSuccess: () => qc.invalidateQueries({
-      predicate: (q) => q.queryKey[0] === "ds" && q.queryKey[1] === id && ["health", "recs", "checks"].includes(String(q.queryKey[3])),
+      predicate: (q) => q.queryKey[0] === "ds" && q.queryKey[1] === id && ["health", "recs", "checks", "ml"].includes(String(q.queryKey[3])),
     }),
   });
 }

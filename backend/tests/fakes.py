@@ -149,6 +149,18 @@ class FakeRepository:
         self.reviewed[dataset_id] = list(reviewed)
         return list(reviewed)
 
+    def get_ml_plan(self, user_id: UUID, dataset_id: UUID) -> dict | None:
+        if self.get_dataset(user_id, dataset_id) is None:
+            return None
+        return dict(getattr(self, "ml_plans", {}).get(dataset_id, {}))
+
+    def set_ml_plan(self, user_id: UUID, dataset_id: UUID, plan: dict) -> dict | None:
+        if self.get_dataset(user_id, dataset_id) is None:
+            return None
+        self.ml_plans = getattr(self, "ml_plans", {})
+        self.ml_plans[dataset_id] = dict(plan)
+        return dict(plan)
+
     def list_versions(self, user_id: UUID, dataset_id: UUID) -> list[VersionRecord]:
         if self.get_dataset(user_id, dataset_id) is None:
             return []

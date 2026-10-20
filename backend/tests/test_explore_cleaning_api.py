@@ -150,7 +150,7 @@ def test_recommendations_feed_preview(api, auth_header, ds):
 
 def test_operations_catalogue(api):
     ops = api.get("/v1/operations").json()["operations"]
-    assert len(ops) == 17 and all("properties" in o["params_schema"] for o in ops)
+    assert len(ops) == 18 and all("properties" in o["params_schema"] for o in ops)
 
 
 def test_sheet_switch_then_revert_restores_sheet(api, auth_header):

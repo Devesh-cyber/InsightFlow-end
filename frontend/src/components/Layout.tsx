@@ -12,6 +12,7 @@ const SECTIONS: [string, string][] = [
   ["relationships", "Relationships"],
   ["charts", "Charts"],
   ["clean", "Clean"],
+  ["ml", "ML-ready"],
   ["history", "History"],
   ["export", "Export & report"],
 ];

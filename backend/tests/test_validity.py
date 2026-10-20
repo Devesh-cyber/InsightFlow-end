@@ -126,6 +126,8 @@ def test_no_mode_fill_for_unique_values_and_no_unknown_for_records():
 def test_preview_warns_when_a_step_breaks_a_total():
     df = make_clean(5, 200).with_columns(pl.when(pl.int_range(pl.len()) == 7).then(99999.0).otherwise(pl.col("price")).alias("price"))
     df = df.with_columns((pl.col("qty") * pl.col("price")).round(2).alias("subtotal"))
-    result = run_operation(df, "handle_outliers", {"column": "price", "method": "iqr", "action": "cap"})
-    warnings = relationship_damage(df, result.df, {"price"})
+    linked = run_operation(df, "handle_outliers", {"column": "price", "method": "iqr", "action": "cap"})
+    assert relationship_damage(df, linked.df, {"price"}) == []  # subtotal recalculated in the capped rows
+    alone = run_operation(df, "handle_outliers", {"column": "price", "method": "iqr", "action": "cap", "update_linked": False})
+    warnings = relationship_damage(df, alone.df, {"price"})
     assert warnings and "subtotal" in warnings[0]

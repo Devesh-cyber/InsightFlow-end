@@ -213,9 +213,13 @@ def find_issues(df: pl.DataFrame) -> list[dict]:
                         "title": f"'{name}' is strongly {side}-skewed (skewness {skew:.2f})",
                         "message": f"Most values sit together with a long tail of {tail} ones. That's common in real data "
                                    "(prices, amounts, counts) and nothing to fix while cleaning. Tree models don't mind it; "
-                                   "linear models often do better after a log transform, which belongs to the ML-ready step.",
+                                   "linear models often do better after a log transform.",
                         "evidence": {"skewness": round(skew, 3), "n": len(values_all)},
-                        "options": [],
+                        "options": [
+                            _option(f"Add a log(1 + x) column '{name}_log'", "transform_numbers",
+                                    {"column": name, "method": "log1p", "keep_original": True},
+                                    note=f"Keeps '{name}'. Calculated row by row, so it doesn't leak between train and test.")
+                        ] if skew > 0 and float(values_all.min()) >= 0 else [],
                     })
             bounds = iqr_bounds(df.get_column(name))
             if bounds:
@@ -238,8 +242,9 @@ def find_issues(df: pl.DataFrame) -> list[dict]:
                         "options": [],
                     })
                 elif count:
-                    breaks = "".join(f" Capping also breaks {r['target']} = {r['a']} {'×' if r['op'] == '*' else '+'} {r['b']} "
-                                     "in those rows." for r in feeds)
+                    breaks = "".join(f" '{name}' is part of {r['target']} = {r['a']} {'×' if r['op'] == '*' else '+'} {r['b']}: "
+                                     f"capping it also recalculates {r['target']} in those rows so they keep agreeing."
+                                     for r in feeds)
                     issues.append({
                         "id": f"outliers:{name}", "category": "outliers", "severity": "info", "column": name,
                         "title": f"{count} possible outlier(s) in '{name}'",
@@ -250,7 +255,7 @@ def find_issues(df: pl.DataFrame) -> list[dict]:
                         "options": [
                             _option("Cap to the bounds", "handle_outliers", {"column": name, "method": "iqr", "factor": 1.5, "action": "cap"},
                                     note="Replaces them with the limit: an estimate, not a correction."
-                                         + (" Breaks the formula above." if feeds else "")),
+                                         + (" Also updates the linked total." if feeds else "")),
                             _option("Remove those rows", "handle_outliers", {"column": name, "method": "iqr", "factor": 1.5, "action": "remove"},
                                     note=f"Removes {count} row(s)."),
                         ],

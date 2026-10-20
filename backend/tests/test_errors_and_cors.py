@@ -1,4 +1,5 @@
 from fastapi import Query
+import pytest
 
 from app.core.errors import NotFoundError
 
@@ -100,3 +101,15 @@ def test_cors_preflight_unknown_origin_is_refused(client):
 def test_cors_exposes_download_filename_header(client):
     response = client.get("/health", headers={"Origin": "http://localhost:5173"})
     assert "Content-Disposition" in response.headers["access-control-expose-headers"]
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "PUT", "PATCH", "DELETE"])
+def test_cors_preflight_allows_every_method_the_frontend_uses(client, method):
+    # PUT is used by saved checks and "Looks fine, keep it"; a missing method silently breaks those buttons in browsers
+    response = client.options(
+        "/v1/datasets/00000000-0000-4000-8000-000000000000/reviewed",
+        headers={"Origin": "https://insightflow.example.com", "Access-Control-Request-Method": method,
+                 "Access-Control-Request-Headers": "authorization,content-type"},
+    )
+    assert response.status_code == 200, method
+    assert method in response.headers["access-control-allow-methods"]

@@ -124,3 +124,29 @@ def test_extra_spaces_rule_matches_pandas():
     df, rows, code = run_both(csv, [("apply_rule", op)], "spaces")
     assert df.height == 2
     assert_same(df, rows, code)
+
+
+@pytest.mark.parametrize("method", ["log1p", "log", "log10", "sqrt"])
+def test_transform_numbers_matches_pandas(method):
+    csv = b"amount,n\n0,1\n1,2\n9.5,3\n-2,4\n1000,5\n,6\n"
+    for keep in (True, False):
+        op = {"column": "amount", "method": method, "keep_original": keep}
+        df, rows, code = run_both(csv, [("transform_numbers", op)], f"t_{method}_{keep}")
+        assert_same(df, rows, code)
+
+
+def test_capping_a_base_column_updates_the_linked_total_and_matches_pandas():
+    import random
+
+    rnd = random.Random(3)
+    rows = ["units,unit_price,total"]
+    for i in range(60):
+        u, p = rnd.randint(1, 7), round(rnd.uniform(100, 900), 2)
+        if i == 10:
+            p = 99999.99
+        rows.append(f"{u},{p},{round(u * p, 2)}")
+    csv = ("\n".join(rows) + "\n").encode()
+    df, out, code = run_both(csv, [("handle_outliers", {"column": "unit_price", "action": "cap"})], "linked")
+    assert "capped" in code
+    assert (df["total"] - (df["units"] * df["unit_price"])).abs().max() < 0.011  # still agrees after capping
+    assert_same(df, out, code)

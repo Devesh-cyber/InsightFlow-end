@@ -94,11 +94,13 @@ function FullIssue({ issue }: { issue: Issue }) {
       )}
       <div className="row" style={{ gap: 14 }}>
         {issue.options.length > 0 && !showFixes && (
-          <button className="link-btn" onClick={() => setShowFixes(true)}>I checked: these look wrong · show fixes</button>
+          <button className="link-btn" onClick={() => setShowFixes(true)}>
+            {issue.category === "skewed" ? "Show options (log transform)" : "I checked: these look wrong · show fixes"}
+          </button>
         )}
         <button className="link-btn keep-btn" disabled={review.isPending} onClick={() => keep(true)}
           title="Close this issue without changing the data">
-          {secondary ? "These are real, keep them" : "Looks fine, keep it"}
+          {issue.category === "skewed" ? "Keep as is" : secondary ? "These are real, keep them" : "Looks fine, keep it"}
         </button>
       </div>
     </div>

@@ -197,3 +197,12 @@ def test_context_and_reviewed_roundtrip(repo, user):
     assert repo.get_context(user, created.id)["reviewed"] == marks
     assert repo.get_context(uuid.uuid4(), created.id) is None
     assert repo.set_reviewed(uuid.uuid4(), created.id, []) is None
+
+
+def test_ml_plan_roundtrip(repo, user):
+    created = repo.create_dataset(new_dataset(user), new_version(), max_datasets=5)
+    assert repo.get_ml_plan(user, created.id) == {}
+    plan = {"columns": {"age": {"role": "use", "steps": [{"kind": "scale", "method": "standard"}]}}, "features": [], "split": {"enabled": True}}
+    assert repo.set_ml_plan(user, created.id, plan) == plan
+    assert repo.get_ml_plan(user, created.id) == plan
+    assert repo.get_ml_plan(uuid.uuid4(), created.id) is None

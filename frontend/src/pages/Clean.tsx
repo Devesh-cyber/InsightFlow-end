@@ -144,6 +144,34 @@ function PreviewBody({ p }: { p: Preview }) {
         </section>
       )}
 
+      {p.samples.new_columns && p.samples.new_columns.rows.length > 0 && (
+        <section aria-label="New columns">
+          <h2 style={{ marginBottom: 10 }}>New column{p.samples.new_columns.added.length > 1 ? "s" : ""}: first rows</h2>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>Row</th>
+                  {p.samples.new_columns.columns.map((c) => <th key={c} className={p.samples.new_columns!.added.includes(c) ? "hl" : undefined}>{c}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {p.samples.new_columns.rows.map((r) => (
+                  <tr key={r.row}>
+                    <td className="mono muted">{num(r.row)}</td>
+                    {r.values.map((v, i) => (
+                      <td key={i} className={`cell${p.samples.new_columns!.added.includes(p.samples.new_columns!.columns[i]) ? " hl" : ""}`}>
+                        {v === null ? <span className="null">missing</span> : cell(v)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {removed && removed.rows.length > 0 && (
         <section aria-label="Removed rows">
           <h2 style={{ marginBottom: 10 }}>Rows that would be removed</h2>
