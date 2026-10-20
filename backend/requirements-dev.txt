@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest==9.1.1
 httpx2==2.13.1
+# Lets the recipe tests run the generated pandas script and compare it with InsightFlow's own result.
+pandas==2.3.3

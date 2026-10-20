@@ -61,8 +61,8 @@ Unsupported file → 415 `unsupported_file_type`. Unreadable/empty → 422.
 | `/v1/datasets/{id}/health` | | `score` (0-100), `grade`, `deductions[{reason, points}]`, `summary`, `issues[]` (see below), `notes` |
 | `/v1/datasets/{id}/columns` | | `columns[{name, dtype, role, null_count, null_pct, unique_count, unique_pct, sample_values, min?, max?, mean?}]` |
 | `/v1/datasets/{id}/columns/detail` | `name` | common stats + `numeric{min,max,mean,median,std,skew,kurtosis,sum,zeros,negatives,quantiles,outliers}` + `histogram[{start,end,count}]`, or `text{lengths…}` + `top_values{items[{value,count,pct}],other_count,distinct}`, or `temporal{min,max,span_days,period,timeline,weekday_counts}`, or `boolean{true,false}` |
-| `/v1/datasets/{id}/relationships` | `a`, `b` | `type` = `numeric_numeric` (pearson, spearman, r_squared, fit, scatter) · `categorical_categorical` (cramers_v, chi_square{statistic,dof,p_value}, contingency) · `numeric_categorical` (eta, eta_squared, groups) · `temporal_numeric` (trend). Always `strength` + plain-English `interpretation`. Identifiers / free text → 422 with the reason |
-| `/v1/datasets/{id}/correlations` | `method=pearson|spearman` | `columns, matrix (null = undefined), top_pairs` (≤30 numeric columns) |
+| `/v1/datasets/{id}/relationships` | `a`, `b` | `type` = `numeric_numeric` (pearson, spearman, r_squared, fit, scatter, n, small_sample, warning: set when fewer than 30 paired rows) · `categorical_categorical` (cramers_v, chi_square{statistic,dof,p_value}, contingency) · `numeric_categorical` (eta, eta_squared, groups) · `temporal_numeric` (trend). Always `strength` + plain-English `interpretation`. Identifiers / free text → 422 with the reason |
+| `/v1/datasets/{id}/correlations` | `method=pearson|spearman` | `columns, matrix (null = undefined), top_pairs` (each with `n` and `small_sample`) (≤30 numeric columns) |
 | `/v1/datasets/{id}/charts/options` | `x`, `y?` | `charts[{type, description, recommended}]` valid for those columns |
 | `/v1/datasets/{id}/charts/data` | `type`, `x`, `y?`, `agg?`, `bins?` | Per type: `histogram{bins}` · `box{groups[{label,n,min,q1,median,q3,max,whisker_low,whisker_high,outliers}]}` · `bar{bars[{label,value,rows}]}` (top 20 + Other) · `line{period, points[{t,value}]}` · `scatter{points[[x,y]], sampled}` (≤5000) · `heatmap{x_labels,y_labels,counts}` |
 
@@ -79,7 +79,10 @@ Unsupported file → 415 `unsupported_file_type`. Unreadable/empty → 422.
 | POST | `/v1/datasets/{id}/revert` | `{"to_version", "expected_version"}` | DatasetDetail (new version; reuses the old file) |
 
 **Issue** (health + recommendations):
-`{id, category, severity (critical|warning|info), column, title, message, evidence, options[{label, operation{type, params}, recommended, note}]}`.
+`{id, category, severity (critical|warning|info), column, title, message, evidence, options[{label, operation{type, params}, recommended, note}], match}`.
+`match` says which rows the issue is about: `{conditions, combine}`, `{duplicate_rows: true}`, or `null` (whole-column issue).
+Send it to `POST /v1/datasets/{id}/matching-rows` (body = `match` + optional `offset`, `limit` ≤100, `version`) →
+`{version, total, rows_in_version, columns[], highlight[], offset, rows[{row, values[]}]}`. Read-only; also works for a rule's or check's conditions.
 Send any `option.operation` straight to `/preview`, then `/apply`.
 
 **effect**: `rows_before, rows_after, rows_removed, columns_before, columns_after, columns_removed, columns_added,
@@ -109,6 +112,31 @@ Apply errors: 422 `no_change`, 422 `would_empty_dataset`, 422 `invalid_parameter
 | `replace_values` | `column`, `find`, `replace`, `match: exact\|contains` |
 | `round_numbers` | `columns: [str]`, `decimals: 0-10` |
 | `handle_outliers` | `column`, `method: iqr\|zscore`, `factor` (default 1.5 / 3), `action: cap\|remove` |
+| `standardize_values` | `column`, `mapping: {spelling: canonical}` |
+| `apply_rule` | `conditions: [Condition]` (0–10), `combine: and\|or`, `action: remove_rows\|keep_rows\|set_value\|set_missing\|clamp\|calculate`, `target` (column to change; default = first condition column), `value` (set_value), `min`/`max` (clamp), `formula` (calculate) |
+
+**Condition**: `{column, op, value?, value2?, ignore_case?, formula?, tolerance?}`. `op`:
+`eq ne lt le gt ge between not_between` (numbers/dates), `contains not_contains starts_with ends_with` (text),
+`in not_in` (`value` is a list), `is_empty not_empty duplicate extra_spaces invalid_number invalid_date invalid_email` (no value),
+`differs_from` (`formula`, `tolerance` default 0.01: the row's value ≠ the formula's result).
+Missing cells never match a comparison. **Formula**: alternating `[operand, "+"|"-"|"*"|"/", operand, …]`,
+operand = `{"column": name}` or `{"number": 3}`; normal precedence; x / 0 → missing.
+Example "remove rows where age < 0 or age > 120":
+`{"type":"apply_rule","params":{"conditions":[{"column":"age","op":"lt","value":0},{"column":"age","op":"gt","value":120}],"combine":"or","action":"remove_rows"}}`
+
+### Saved checks
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/v1/datasets/{id}/checks` | `?version=` | `{version, checks[{id, name, conditions, combine, result}]}` |
+| PUT | `/v1/datasets/{id}/checks` | `{"checks": [{id, name, conditions, combine}]}` (replaces the list, ≤25) | same as GET (current version) |
+
+A check's conditions describe a **bad** row. `result = {status: passing|failing|error, violations, rows[{row, values}], columns, rule, error}`.
+Failing checks appear in `/health`, `/recommendations` and the report as `check_failed` issues (−5 each, max −30);
+a check whose column no longer exists shows as `check_error` (info). Needs migration `0002_checks.sql`.
+
+**Issue categories**: `missing_values duplicates empty_column constant_column convert_to_number convert_to_date outliers`
+plus validity checks `duplicate_id invalid_values broken_relationship inconsistent_spelling` and `check_failed check_error`.
 
 ## Export
 
@@ -118,3 +146,13 @@ Apply errors: 422 `no_change`, 422 `would_empty_dataset`, 422 `invalid_parameter
 | GET | `/v1/datasets/{id}/recipe` | | `text/x-python`: pandas script reproducing the steps (follows reverts) |
 
 XLSX export is limited to `MAX_XLSX_EXPORT_CELLS` (default 1,000,000) → 422 `too_large_for_excel`; CSV has no limit.
+
+## Report
+
+| Method | Path | Query | Returns |
+|---|---|---|---|
+| GET | `/v1/datasets/{id}/report` | `format=html\|docx\|json` (default html), `version?`, `title?` (≤120), `author?` (≤80), `tz?` (IANA zone, e.g. `Asia/Kolkata`) | `html`: print-ready A4 page in the Sage theme (download; the user saves it as PDF with Ctrl/⌘+P) · `docx`: editable Word file, same content · `json`: the report data, for an in-app preview |
+
+Sections, in order: cover (title, prepared by, dataset, source, version, date) · 1 Summary (KPI tiles + auto-written key findings) · 2 The data (data dictionary) · 3 Data quality (before vs after table, score deductions, open issues with suggested fixes) · 4 Cleaning log (every version, cells changed, rows removed, warnings) · 5 Column profiles (stats + chart per column, up to 25 columns) · 6 Relationships (top correlations with row counts; under 30 rows flagged) · 7 Reproduce it (pandas recipe) · 8 Methods and definitions.
+
+"Before" is the earliest kept version (v1 unless old versions were pruned, which the report says). The report reuses the Explore caches, so generating it after browsing the app is cheap. The HTML has no JavaScript and is served with a strict `Content-Security-Policy`; every value from the file is escaped. Template: `backend/app/report/templates/report.html.j2` (colours are CSS variables at the top).

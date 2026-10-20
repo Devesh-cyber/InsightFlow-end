@@ -175,3 +175,15 @@ def test_concurrent_creates_cannot_exceed_quota(repo, user):
         results = list(pool.map(attempt, range(8)))
     assert sum(results) == 3
     assert repo.count_datasets(user) == 3
+
+
+def test_checks_roundtrip_and_ownership(repo, user):
+    created = repo.create_dataset(new_dataset(user), new_version(), max_datasets=5)
+    assert repo.get_checks(user, created.id) == []  # default from migration 0002
+    saved = [{"id": "age", "name": "Age is sane", "conditions": [{"column": "age", "op": "lt", "value": 0}], "combine": "and"}]
+    assert repo.set_checks(user, created.id, saved) == saved
+    assert repo.get_checks(user, created.id) == saved
+    stranger = uuid.uuid4()
+    assert repo.get_checks(stranger, created.id) is None
+    assert repo.set_checks(stranger, created.id, []) is None
+    assert repo.get_checks(user, created.id) == saved

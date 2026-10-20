@@ -209,7 +209,7 @@ def render_docx(r: dict) -> bytes:
         p = doc.add_paragraph()
         _run(p, r["cleaning"]["pruned_note"], color=MUTED, size=9)
     _table(doc, ["Version", "What was done", "Cells changed", "Rows removed", "Shape after"],
-           [[f"v{s['version']}", s["description"] + "".join(f"\n⚠ {w}" for w in s["warnings"]),
+           [[f"v{s['version']}", s["description"] + (f" [estimate: {s['estimate']}]" if s.get("estimate") else "") + "".join(f"\n⚠ {w}" for w in s["warnings"]),
              s["cells_changed"], s["rows_removed"], f"{s['rows']} × {s['columns']}"] for s in r["cleaning"]["steps"]],
            right={2, 3, 4}, mono={0, 2, 3, 4}, widths=(16, 92, 22, 22, 22))
 

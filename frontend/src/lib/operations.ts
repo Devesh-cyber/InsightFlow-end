@@ -148,4 +148,8 @@ export function missingInput(form: OpForm, params: Record<string, unknown>): str
   return null;
 }
 
-export const OP_LABEL: Record<string, string> = Object.fromEntries(OP_FORMS.map((f) => [f.type, f.label]));
+export const OP_LABEL: Record<string, string> = {
+  ...Object.fromEntries(OP_FORMS.map((f) => [f.type, f.label])),
+  apply_rule: "Custom rule",
+  standardize_values: "Standardize spellings",
+};

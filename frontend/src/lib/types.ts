@@ -106,6 +106,8 @@ export interface Issue {
   message: string;
   evidence: Record<string, unknown>;
   options: IssueOption[];
+  /** Which rows the issue is about (null = the whole column). */
+  match?: RowMatch | null;
 }
 
 export interface Health {
@@ -233,3 +235,59 @@ export interface VersionEntry {
 export interface Versions { current_version: number; retention: number; versions: VersionEntry[] }
 
 export interface OperationSpec { type: string; params_schema: Record<string, unknown> }
+
+// ------------------------------------------------------------- custom rules
+export type RuleOp =
+  | "eq" | "ne" | "lt" | "le" | "gt" | "ge" | "between" | "not_between"
+  | "contains" | "not_contains" | "starts_with" | "ends_with" | "in" | "not_in"
+  | "is_empty" | "not_empty" | "duplicate" | "invalid_number" | "invalid_date" | "invalid_email" | "differs_from";
+
+/** Formula: alternating operand, operator, operand… */
+export type FormulaOperand = { column: string } | { number: number };
+export type FormulaTerm = FormulaOperand | "+" | "-" | "*" | "/";
+
+export interface RuleCondition {
+  column: string;
+  op: RuleOp;
+  value?: unknown;
+  value2?: unknown;
+  ignore_case?: boolean;
+  formula?: FormulaTerm[];
+  tolerance?: number;
+}
+
+export interface CheckDef {
+  id: string;
+  name: string;
+  conditions: RuleCondition[];
+  combine: "and" | "or";
+}
+
+export interface CheckResult {
+  id: string;
+  name: string;
+  rule: string;
+  status: "passing" | "failing" | "error";
+  violations: number | null;
+  columns?: string[];
+  rows: { row: number; values: Cell[] }[];
+  error: string | null;
+}
+
+export interface ChecksView {
+  version: number;
+  checks: (CheckDef & { result: CheckResult | null })[];
+}
+
+/** Which rows something is about: rule conditions, or every copy of a repeated row. */
+export type RowMatch = { conditions: RuleCondition[]; combine: "and" | "or"; duplicate_rows?: false } | { duplicate_rows: true; conditions?: never; combine?: never };
+
+export interface MatchingRows {
+  version: number;
+  total: number;
+  rows_in_version: number;
+  columns: string[];
+  highlight: string[];
+  offset: number;
+  rows: { row: number; values: Cell[] }[];
+}

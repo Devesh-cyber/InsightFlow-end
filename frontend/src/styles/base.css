@@ -159,6 +159,12 @@ table.data td.cell { max-width: 280px; overflow: hidden; text-overflow: ellipsis
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 14px; box-shadow: var(--shadow); font-size: 13px; display: flex; gap: 12px; align-items: flex-start; }
 .toast.error { border-left-color: var(--danger); }
 .toast button { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
+.toast button.toast-action { font-size: 13px; font-weight: 600; color: var(--accent-strong); white-space: nowrap; padding: 0 2px; }
+.toast button.toast-action + button { margin-left: 0; }
+
+/* rows an issue / rule / check is about */
+table.data th.hl, table.data td.hl { background: var(--accent-soft); }
+table.data th.hl { color: var(--accent-strong); }
 .empty { text-align: center; padding: 48px 24px; color: var(--muted); display: flex; flex-direction: column; gap: 12px; align-items: center; }
 .progress { height: 6px; border-radius: 3px; background: var(--sunken); overflow: hidden; }
 .progress > span { display: block; height: 100%; background: var(--mark); transition: width 0.2s; }

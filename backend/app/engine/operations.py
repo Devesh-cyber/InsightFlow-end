@@ -11,17 +11,20 @@ A hidden row id column tracks rows through the operation so we can tell
 "changed" from "removed". Operations never see or touch it.
 """
 
+import datetime
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import polars as pl
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from app.core.errors import UnprocessableError
 from app.engine.infer import FLOAT_RE, dtype_label
 from app.engine.jsonsafe import to_json
 from app.engine.profile import iqr_bounds, is_numeric, is_temporal
+from app.engine.rules import CALC_DECIMALS, Condition, FormulaTerm, RuleError, _check_formula, describe_conditions, evaluate, formula_expr, formula_text
 
 ROW_ID = "__insightflow_row_id__"
 SAMPLE_ROWS = 20
@@ -141,6 +144,49 @@ class HandleOutliers(Params):
     action: Literal["cap", "remove"]
 
 
+class ApplyRule(Params):
+    """If <conditions> then <action>. Conditions may be empty only for calculate / clamp (= every row)."""
+    conditions: list[Condition] = Field(default_factory=list, max_length=10)
+    combine: Literal["and", "or"] = "and"
+    action: Literal["remove_rows", "keep_rows", "set_value", "set_missing", "clamp", "calculate"]
+    target: str | None = Field(default=None, max_length=255)
+    value: Any = None
+    min: float | None = None
+    max: float | None = None
+    formula: list[FormulaTerm] | None = None
+
+    @field_validator("formula")
+    @classmethod
+    def _formula(cls, terms):
+        return _check_formula(terms) if terms is not None else terms
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.action in ("remove_rows", "keep_rows", "set_value", "set_missing") and not self.conditions:
+            raise ValueError("this action needs at least one condition")
+        if self.action == "set_value" and self.value is None:
+            raise ValueError("'set to a value' needs a value (use 'mark as missing' to empty cells)")
+        if self.action == "clamp":
+            if self.min is None and self.max is None:
+                raise ValueError("'keep within limits' needs a minimum and/or a maximum")
+            if self.min is not None and self.max is not None and self.min > self.max:
+                raise ValueError("the minimum is larger than the maximum")
+        if self.action == "calculate" and not self.formula:
+            raise ValueError("'calculate' needs a formula")
+        if self.action in ("set_value", "set_missing", "clamp", "calculate") and not self.target:
+            if self.conditions and self.action != "calculate":
+                self.target = self.conditions[0].column
+            else:
+                raise ValueError("choose the column to change")
+        return self
+
+
+class StandardizeValues(Params):
+    """Replace spelling variants with one canonical spelling, e.g. {'mumbai': 'Mumbai', 'MUMBAI': 'Mumbai'}."""
+    column: str
+    mapping: dict[str, str] = Field(min_length=1, max_length=500)
+
+
 # ---------------------------------------------------------------------------
 # Implementations: (df with ROW_ID, params) -> (df, warnings)
 # ---------------------------------------------------------------------------
@@ -225,6 +271,7 @@ def _fill_missing(df, p: FillMissing):
             warnings.append(f"'{name}' has no missing values.")
             continue
         col = pl.col(name)
+        warnings.extend(_dirty_input_warnings(series, p.strategy))
         if p.strategy in ("mean", "median"):
             if not is_numeric(series.dtype):
                 raise OperationError(f"{p.strategy.title()} only works on numeric columns; '{name}' is {dtype_label(series.dtype)}.")
@@ -239,9 +286,15 @@ def _fill_missing(df, p: FillMissing):
             else:
                 exprs.append(col.fill_null(fill))
         elif p.strategy == "mode":
-            modes = series.drop_nulls().mode().sort()
+            values = series.drop_nulls()
+            modes = values.mode().sort()
             if len(modes) == 0:
                 raise OperationError(f"'{name}' has no values to take the most common from.")
+            if values.n_unique() == len(values):
+                raise OperationError(
+                    f"Every value in '{name}' is different, so there is no most common value to fill with. "
+                    "Leave the gaps, remove those rows, or fill with a value you choose."
+                )
             if len(modes) > 1:
                 warnings.append(f"'{name}' has several equally common values; used {to_json(modes[0])!r}.")
             exprs.append(col.fill_null(modes[0]))
@@ -252,6 +305,27 @@ def _fill_missing(df, p: FillMissing):
         else:
             exprs.append(col.backward_fill())
     return (df.with_columns(exprs) if exprs else df), warnings
+
+
+def _dirty_input_warnings(series: pl.Series, strategy: str) -> list[str]:
+    """The fill is computed from the other values: say so when some of them look wrong."""
+    name, values = series.name, series.drop_nulls()
+    notes = []
+    if strategy in ("mean", "median") and is_numeric(series.dtype) and len(values) >= 4:
+        bounds = iqr_bounds(series)
+        if bounds:
+            outside = int(((values < bounds[2]) | (values > bounds[3])).sum())
+            if outside:
+                notes.append(f"The {strategy} includes {outside} value(s) in '{name}' flagged as outliers; "
+                             "if they are errors, fix them first.")
+        negatives = int((values < 0).sum())
+        if 0 < negatives <= 0.05 * len(values):
+            notes.append(f"The {strategy} includes {negatives} negative value(s) in a mostly non-negative column.")
+    if strategy == "mode" and series.dtype == pl.String:
+        keys = values.str.strip_chars().str.to_lowercase()
+        if keys.n_unique() < values.n_unique():
+            notes.append(f"Some values in '{name}' differ only by case or spaces; standardize them first so they count together.")
+    return notes
 
 
 def _convert_type(df, p: ConvertType):
@@ -426,7 +500,139 @@ def _handle_outliers(df, p: HandleOutliers):
     clipped = col.cast(pl.Float64).clip(lower, upper)
     if series.dtype.is_integer():
         clipped = col.clip(int(-(-lower // 1)), int(upper // 1))  # stay integer: ceil(lower), floor(upper)
-    return df.with_columns(clipped.alias(p.column)), [f"Bounds used: {lower:.4g} to {upper:.4g}."]
+    notes = [f"Bounds used: {lower:.4g} to {upper:.4g}.",
+             "Capping replaces real values with the limit (an estimate, not a correction). "
+             "Columns calculated from this one are not updated."]
+    values = series.drop_nulls()
+    if lower < 0 and len(values) and int((values < 0).sum()) <= 0.05 * len(values) and int((values < 0).sum()):
+        notes.append(f"The lower limit is below 0, so negative values stay negative. "
+                     f"If '{p.column}' can't be negative, use a custom rule (e.g. {p.column} < 0 → mark as missing).")
+    return df.with_columns(clipped.alias(p.column)), notes
+
+
+def _rule_mask(df, p: ApplyRule) -> pl.Series:
+    try:
+        if p.conditions:
+            return evaluate(df, p.conditions, p.combine)
+        return pl.Series([True] * df.height, dtype=pl.Boolean)
+    except RuleError as exc:
+        raise OperationError(exc.message) from exc
+
+
+def _value_for(df, column: str, value: Any) -> tuple[pl.Expr, pl.Expr | None, str | None]:
+    """(literal, optional recast of the column, optional warning) so the value fits the column's type."""
+    dtype = df.get_column(column).dtype
+    if is_numeric(dtype):
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise OperationError(f"'{column}' holds numbers, so the new value must be a number.") from None
+        if dtype.is_integer() and number.is_integer():
+            return pl.lit(int(number), dtype=dtype), None, None
+        if dtype.is_integer():
+            return pl.lit(number), pl.col(column).cast(pl.Float64), f"'{column}' becomes decimal to hold {number}."
+        return pl.lit(number, dtype=dtype), None, None
+    if dtype == pl.Date or isinstance(dtype, pl.Datetime):
+        try:
+            parsed = datetime.date.fromisoformat(str(value)) if dtype == pl.Date else datetime.datetime.fromisoformat(str(value))
+        except ValueError:
+            raise OperationError(f"'{column}' holds dates; write the value as YYYY-MM-DD.") from None
+        return pl.lit(parsed, dtype=dtype), None, None
+    if dtype == pl.Boolean:
+        text = str(value).strip().lower()
+        if text not in ("true", "false"):
+            raise OperationError(f"'{column}' holds true/false values.")
+        return pl.lit(text == "true"), None, None
+    return pl.lit(str(value), dtype=pl.String), None, None
+
+
+def _apply_rule(df, p: ApplyRule):
+    _missing_columns(df, [c.column for c in p.conditions])
+    mask = _rule_mask(df, p)
+    matched = int(mask.sum())
+    warnings = [f"{matched} of {df.height} row(s) match the condition." if p.conditions else f"Applies to all {df.height} row(s)."]
+    if matched == 0:
+        return df, warnings
+
+    if p.action == "remove_rows":
+        return df.filter(~mask), warnings
+    if p.action == "keep_rows":
+        return df.filter(mask), warnings
+
+    target = p.target
+    m = pl.lit(mask)
+    if p.action == "calculate":
+        try:
+            computed = formula_expr(df, p.formula)
+        except RuleError as exc:
+            raise OperationError(exc.message) from exc
+        result = df.select(computed.alias("r")).to_series()
+        if result.dtype.is_float():
+            # 3 × 1836.23 is 5508.690000000001 in binary; round off that noise so unchanged totals stay unchanged
+            computed = computed.round(CALC_DECIMALS)
+        if target in df.columns:
+            current = df.get_column(target)
+            if not is_numeric(current.dtype):
+                raise OperationError(f"'{target}' is {dtype_label(current.dtype)}; a formula can only write to a number column.")
+            if current.dtype.is_float() or result.dtype.is_float():
+                if current.dtype.is_integer():
+                    warnings.append(f"'{target}' becomes decimal to hold the calculated values.")
+                base, computed = pl.col(target).cast(pl.Float64), computed.cast(pl.Float64)
+            else:
+                base, computed = pl.col(target), computed.cast(current.dtype)
+            expr = pl.when(m).then(computed).otherwise(base)
+        else:
+            expr = pl.when(m).then(computed).otherwise(None)
+            warnings.append(f"New column '{target}' = {formula_text(p.formula)}.")
+        new = df.with_columns(expr.alias(target))
+        undefined = int((new.get_column(target).is_null() & mask).sum())
+        if undefined:
+            warnings.append(f"{undefined} row(s) got a missing result (a value was missing, or division by zero).")
+        return new, warnings
+
+    _missing_columns(df, [target])
+    col = pl.col(target)
+    if p.action == "set_missing":
+        return df.with_columns(pl.when(m).then(None).otherwise(col).alias(target)), warnings
+    if p.action == "set_value":
+        literal, recast, note = _value_for(df, target, p.value)
+        base = recast if recast is not None else col
+        if note:
+            warnings.append(note)
+        return df.with_columns(pl.when(m).then(literal).otherwise(base).alias(target)), warnings
+
+    # clamp
+    dtype = df.get_column(target).dtype
+    if not is_numeric(dtype):
+        raise OperationError(f"'{target}' is {dtype_label(dtype)}; limits only apply to number columns.")
+    lo, hi = p.min, p.max
+    if dtype.is_integer():
+        lo = None if lo is None else math.ceil(lo)
+        hi = None if hi is None else math.floor(hi)
+    clipped = col.clip(lo, hi)
+    return df.with_columns(pl.when(m).then(clipped).otherwise(col).alias(target)), warnings
+
+
+def _standardize_values(df, p: StandardizeValues):
+    text, _ = _text_columns(df, [p.column], "Standardizing spellings")
+    col = pl.col(p.column)
+    return df.with_columns(col.replace(p.mapping).alias(p.column)), []
+
+
+def _describe_rule(p: ApplyRule) -> str:
+    where = f" where {describe_conditions(p.conditions, p.combine)}" if p.conditions else ""
+    if p.action == "remove_rows":
+        return f"Remove rows{where}"
+    if p.action == "keep_rows":
+        return f"Keep only rows{where}"
+    if p.action == "set_missing":
+        return f"Mark '{p.target}' as missing{where}"
+    if p.action == "set_value":
+        return f"Set '{p.target}' to {p.value!r}{where}"
+    if p.action == "clamp":
+        limits = " and ".join(x for x in [f"at least {p.min:g}" if p.min is not None else "", f"at most {p.max:g}" if p.max is not None else ""] if x)
+        return f"Keep '{p.target}' {limits}{where}"
+    return f"Calculate '{p.target}' = {formula_text(p.formula)}{where}"
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +677,9 @@ OPERATIONS: dict[str, OperationSpec] = {
     "round_numbers": OperationSpec(RoundNumbers, _round_numbers, lambda p: f"Round {_cols(p.columns)} to {p.decimals} decimal(s)"),
     "handle_outliers": OperationSpec(HandleOutliers, _handle_outliers,
                                      lambda p: f"{'Cap' if p.action == 'cap' else 'Remove'} outliers in '{p.column}' ({p.method})"),
+    "apply_rule": OperationSpec(ApplyRule, _apply_rule, _describe_rule),
+    "standardize_values": OperationSpec(StandardizeValues, _standardize_values,
+                                        lambda p: f"Standardize {len(p.mapping)} spelling(s) in '{p.column}'"),
 }
 
 
@@ -556,7 +765,7 @@ def run_operation(df: pl.DataFrame, op_type: str, params: dict | None, *, with_s
         "cells_changed": sum(changed_per_column.values()),
         "changed_per_column": changed_per_column,
         "dtype_changes": dtype_changes,
-        "no_change": not (rows_removed or removed_cols or added_cols or renamed or changed_per_column),
+        "no_change": not (rows_removed or removed_cols or added_cols or renamed or changed_per_column or dtype_changes),
     }
 
     samples = {}

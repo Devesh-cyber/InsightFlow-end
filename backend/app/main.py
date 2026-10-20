@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.api import cleaning, datasets, explore, report, system
+from app.api import checks, cleaning, datasets, explore, report, system
 from app.config import Settings, get_settings
 from pathlib import Path
 
@@ -24,6 +24,7 @@ from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.core.ratelimit import RateLimiter
 from app.services.analysis import AnalysisService
+from app.services.checks import ChecksService
 from app.services.cleaning import CleaningService
 from app.services.datasets import DatasetLimits, DatasetService
 from app.services.export import ExportService
@@ -93,7 +94,7 @@ def create_app(
     app.state.dataset_service = dataset_service
     app.state.job_limiter = JobLimiter(settings.max_concurrent_jobs, settings.job_queue_timeout_seconds)
     app.state.analysis_service = app.state.cleaning_service = app.state.export_service = None
-    app.state.report_service = None
+    app.state.report_service = app.state.checks_service = None
     if dataset_service is not None:
         analysis = AnalysisService(
             dataset_service.repo,
@@ -103,9 +104,10 @@ def create_app(
             heavy=app.state.job_limiter.heavy,
         )
         app.state.analysis_service = analysis
-        app.state.cleaning_service = CleaningService(analysis, dataset_service)
+        app.state.checks_service = ChecksService(analysis)
+        app.state.cleaning_service = CleaningService(analysis, dataset_service, app.state.checks_service)
         app.state.export_service = ExportService(analysis, settings.max_xlsx_export_cells)
-        app.state.report_service = ReportService(analysis, settings.max_versions_per_dataset)
+        app.state.report_service = ReportService(analysis, settings.max_versions_per_dataset, app.state.checks_service)
     app.state.upload_limiter = RateLimiter(settings.uploads_per_hour, 3600)
 
     # Order matters: the LAST added middleware is the OUTERMOST.
@@ -129,6 +131,7 @@ def create_app(
     app.include_router(explore.router)
     app.include_router(cleaning.router)
     app.include_router(report.router)
+    app.include_router(checks.router)
     return app
 
 

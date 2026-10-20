@@ -6,8 +6,11 @@ and re-run it on next month's file. Generated from the version history, followin
 reverts, so it reflects the steps that actually produced the current version.
 """
 
+import math
+
 from app.db.models import DatasetRecord, VersionRecord
 from app.engine.infer import STANDARD_MISSING
+from app.engine.rules import CALC_DECIMALS, Condition, Operand, formula_code, kind_of, mask_code
 
 
 def lineage(versions: dict[int, VersionRecord], current: int) -> tuple[list[VersionRecord], VersionRecord | None, bool]:
@@ -37,8 +40,10 @@ def _cols(columns) -> str:
     return "[" + ", ".join(_q(c) for c in columns) + "]"
 
 
-def _step_code(op: dict) -> list[str]:
+def _step_code(op: dict, dtypes: dict[str, str] | None = None, after: dict[str, str] | None = None) -> list[str]:
+    """dtypes = column types before this step, after = column types after it (InsightFlow labels)."""
     t, p = op["type"], op.get("params") or {}
+    dtypes, after = dtypes or {}, after or {}
     if t == "drop_columns":
         return [f"df = df.drop(columns={_cols(p['columns'])})"]
     if t == "rename_columns":
@@ -85,8 +90,7 @@ def _step_code(op: dict) -> list[str]:
         elif to in ("date", "datetime"):
             fmt = p.get("format") or (p.get("format_options") or [None])[0]
             fmt_arg = f", format={fmt!r}" if fmt else ""
-            suffix = ".dt.date" if to == "date" else ""
-            lines.append(f'df[{c}] = pd.to_datetime(df[{c}]{fmt_arg}, errors="coerce"){suffix}')
+            lines.append(f'df[{c}] = pd.to_datetime(df[{c}]{fmt_arg}, errors="coerce")')
         else:
             lines.append(f'df[{c}] = df[{c}].astype("string")')
         return lines
@@ -99,7 +103,14 @@ def _step_code(op: dict) -> list[str]:
         lines.append(f"df[{c}] = numbers")
         return lines
     if t == "mark_missing":
-        return [f"df[{_cols(p['columns'])}] = df[{_cols(p['columns'])}].replace({_cols(p['values'])}, pd.NA)"]
+        lines = []
+        for c in p["columns"]:
+            if kind_of(dtypes.get(c, "text")) == "text":
+                lines.append(f'df[{_q(c)}] = df[{_q(c)}].mask(df[{_q(c)}].astype("string").str.strip().isin({_cols(p["values"])}))')
+            else:
+                numbers = [float(v) for v in p["values"] if _is_number(v)]
+                lines.append(f"df[{_q(c)}] = df[{_q(c)}].mask(df[{_q(c)}].isin({numbers!r}))")
+        return lines
     if t == "trim_whitespace":
         return [f"df[{_q(c)}] = df[{_q(c)}].str.strip()" for c in p["columns"]]
     if t == "change_case":
@@ -123,27 +134,103 @@ def _step_code(op: dict) -> list[str]:
             lines = [f"mean, std = df[{c}].mean(), df[{c}].std()",
                      f"lower, upper = mean - {factor} * std, mean + {factor} * std"]
         if p["action"] == "cap":
-            lines.append(f"df[{c}] = df[{c}].clip(lower, upper)")
+            if dtypes.get(p["column"]) == "integer":  # InsightFlow keeps whole numbers: ceil(lower), floor(upper)
+                lines.append(f"df[{c}] = df[{c}].clip(math.ceil(lower), math.floor(upper))")
+            else:
+                lines.append(f"df[{c}] = df[{c}].clip(lower, upper)")
         else:
             lines.append(f"df = df[df[{c}].isna() | df[{c}].between(lower, upper)]")
         return lines
+    if t == "standardize_values":
+        return [f"df[{_q(p['column'])}] = df[{_q(p['column'])}].replace({p['mapping']!r})"]
+    if t == "apply_rule":
+        return _rule_code(p, dtypes, after)
     return [f"# (no pandas equivalent generated for '{t}')"]
+
+
+def _is_number(value) -> bool:
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _rule_code(p: dict, dtypes: dict[str, str], after: dict[str, str]) -> list[str]:
+    conditions = [Condition.model_validate(c) for c in p.get("conditions") or []]
+    kinds = {name: kind_of(label) for name, label in dtypes.items()}
+    action, target = p["action"], p.get("target")
+    lines = [f"mask = {mask_code(conditions, p.get('combine', 'and'), kinds)}" if conditions
+             else "mask = pd.Series(True, index=df.index)"]
+    if action == "remove_rows":
+        return lines + ["df = df[~mask]"]
+    if action == "keep_rows":
+        return lines + ["df = df[mask]"]
+    t = _q(target)
+    became_decimal = dtypes.get(target) == "integer" and after.get(target) == "float"
+    if became_decimal:
+        lines.append(f'df[{t}] = df[{t}].astype("Float64")')
+    if action == "set_missing":
+        return lines + [f"df.loc[mask, {t}] = pd.NA"]
+    if action == "set_value":
+        kind = kind_of(after.get(target, dtypes.get(target, "text")))
+        value = p["value"]
+        if kind == "number":
+            literal = repr(int(float(value))) if after.get(target) == "integer" else repr(float(value))
+        elif kind == "date":
+            literal = f"pd.Timestamp({str(value)!r})"
+        elif kind == "bool":
+            literal = repr(str(value).strip().lower() == "true")
+        else:
+            literal = repr(str(value))
+        return lines + [f"df.loc[mask, {t}] = {literal}"]
+    if action == "clamp":
+        lo, hi = p.get("min"), p.get("max")
+        if dtypes.get(target) == "integer":
+            lo = None if lo is None else math.ceil(lo)
+            hi = None if hi is None else math.floor(hi)
+        return lines + [f"df.loc[mask, {t}] = df.loc[mask, {t}].clip(lower={lo!r}, upper={hi!r})"]
+    # calculate
+    terms = [Operand.model_validate(x) if isinstance(x, dict) else x for x in p["formula"]]
+    formula = f"({formula_code(terms)}).round({CALC_DECIMALS})"
+    if target not in dtypes:
+        return lines + [f"df[{t}] = {formula}.where(mask)"]
+    return lines + [f"df.loc[mask, {t}] = {formula}[mask]"]
+
+
+def _types(version: VersionRecord | None) -> dict[str, str]:
+    return {c["name"]: c.get("dtype", "text") for c in ((version.summary or {}).get("column_info", []) if version else [])}
 
 
 def pandas_recipe(dataset: DatasetRecord, versions: list[VersionRecord]) -> str:
     by_number = {v.version: v for v in versions}
     steps, base, complete = lineage(by_number, dataset.current_version)
     source = dataset.source_filename
+    base_types = _types(base)
+    text_columns = [c for c, t in base_types.items() if t == "text"]
+    date_columns = [c for c, t in base_types.items() if t in ("date", "datetime")]
+
+    uses_math = any(v.operation.get("type") in ("handle_outliers", "apply_rule") for v in steps)
+    uses_div = False
+    for v in steps:
+        if v.operation.get("type") == "apply_rule":
+            params = v.operation.get("params") or {}
+            terms = [t for t in params.get("formula") or [] if isinstance(t, str)]
+            for c in params.get("conditions") or []:
+                terms += [t for t in c.get("formula") or [] if isinstance(t, str)]
+            uses_div = uses_div or "/" in terms
+
     lines = [
         f"# InsightFlow recipe for '{dataset.name}' (version {dataset.current_version})",
         "# Reproduces the cleaning steps with pandas. Run it next to the original file.",
-        "import pandas as pd",
-        "",
-        f"MISSING_MARKERS = {list(STANDARD_MISSING)!r}",
     ]
-    text_columns = []
-    if base is not None:
-        text_columns = [c["name"] for c in (base.summary or {}).get("column_info", []) if c.get("dtype") == "text"]
+    if uses_math:
+        lines.append("import math")
+    lines += ["import pandas as pd", "", f"MISSING_MARKERS = {list(STANDARD_MISSING)!r}"]
+    if uses_div:
+        lines += ["", "", "def safe_div(a, b):",
+                  '    """Division where x / 0 gives a missing value (as in InsightFlow), not infinity."""',
+                  "    return (a / b).where(b != 0)", ""]
     dtype_arg = f", dtype={ {c: 'string' for c in text_columns}!r}" if text_columns else ""
     if dataset.source_format == "xlsx":
         sheet = (base.summary or {}).get("source", {}).get("sheet") if base else dataset.sheet_name
@@ -151,15 +238,26 @@ def pandas_recipe(dataset: DatasetRecord, versions: list[VersionRecord]) -> str:
     else:
         lines.append(f"df = pd.read_csv({source!r}{dtype_arg}, na_values=MISSING_MARKERS, keep_default_na=False)")
     if text_columns:
-        lines.append("# Text columns are read as text so codes like '00123' keep their leading zeros.")
+        lines += [
+            "# Text columns are read as text so codes like '00123' keep their leading zeros.",
+            "# Like InsightFlow, blank cells and missing markers with spaces around them (e.g. '  ', ' NA ') count as missing.",
+            'for col in df.select_dtypes(include="string").columns:',
+            "    df[col] = df[col].mask(df[col].str.strip().isin(MISSING_MARKERS))",
+        ]
+    for c in date_columns:
+        fmt = ', format="%Y-%m-%d"' if base_types[c] == "date" else ""
+        lines.append(f'df[{c!r}] = pd.to_datetime(df[{c!r}]{fmt}, errors="coerce")')
 
     if not complete:
         lines += ["", "# NOTE: older history was pruned, so the earliest steps can't be shown.",
                   "# The steps below start from a later version."]
+    current = dict(base_types)
     for index, version in enumerate(steps, start=1):
         description = (version.summary or {}).get("description", version.operation.get("type"))
+        after = _types(version) or dict(current)
         lines += ["", f"# Step {index} (version {version.version}): {description}"]
-        lines += _step_code(version.operation)
+        lines += _step_code(version.operation, current, after)
+        current = after
     stem = dataset.name.replace(" ", "_")
     lines += ["", f'df.to_csv("{stem}_cleaned.csv", index=False)', 'print(df.shape)', ""]
     return "\n".join(lines)

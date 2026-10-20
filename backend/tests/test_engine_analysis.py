@@ -86,17 +86,26 @@ def test_health_issues_and_score(df):
     assert all("utlier" not in d["reason"] for d in report["deductions"])
 
 
-def test_missing_value_options_recommend_by_skew():
+def test_missing_value_fills_are_offered_by_skew_but_never_recommended():
     skewed = pl.DataFrame({"v": [1.0, 1, 1, 2, 2, 3, 100, 200, None, None] * 3})
     issue = next(i for i in quality.find_issues(skewed) if i["category"] == "missing_values")
-    recommended = [o for o in issue["options"] if o["recommended"]]
-    assert recommended[0]["operation"] == {"type": "fill_missing", "params": {"columns": ["v"], "strategy": "median"}}
+    assert not any(o["recommended"] for o in issue["options"])  # an estimate is a choice, not a default
+    assert issue["options"][0]["operation"] == {"type": "fill_missing", "params": {"columns": ["v"], "strategy": "median"}}
+    assert "median" in issue["message"]
 
 
-def test_categorical_missing_recommends_mode():
+def test_categorical_missing_offers_mode_without_recommending_it():
     data = pl.DataFrame({"c": ["a", "b", "a", None] * 10})
     issue = next(i for i in quality.find_issues(data) if i["category"] == "missing_values")
-    assert next(o for o in issue["options"] if o["recommended"])["operation"]["params"]["strategy"] == "mode"
+    assert issue["options"][0]["operation"]["params"]["strategy"] == "mode"
+    assert not any(o["recommended"] for o in issue["options"])
+
+
+def test_numbers_stored_as_text_get_no_category_fill():
+    data = pl.DataFrame({"age": ["25", "31", None, "40", "unknown", "28"] * 5})
+    issue = next(i for i in quality.find_issues(data) if i["category"] == "missing_values")
+    assert not any(o["operation"]["type"] == "fill_missing" for o in issue["options"])
+    assert "Convert it to numbers first" in issue["message"]
 
 
 def test_text_column_type_issue():

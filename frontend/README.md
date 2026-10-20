@@ -1,6 +1,6 @@
 # InsightFlow frontend (v2)
 
-React + TypeScript + Vite, in the **Sage** theme with light and dark mode. It talks only to the
+React + TypeScript + Vite, in the **Sage** dark theme. It talks only to the
 InsightFlow v2 backend; Supabase is used just for sign-in (email + Google).
 
 ## Run it on your computer
@@ -56,7 +56,7 @@ automatically and shows a clear message if the server can't be reached.
 ```
 src/
   main.tsx, App.tsx        entry, routes (login, datasets, the 8 dataset pages)
-  styles/tokens.css        every colour, light + dark (Sage). Change the theme here.
+  styles/tokens.css        every colour (Sage dark). Change the theme here.
   styles/base.css          layout and component styles
   lib/api.ts               the only code that calls the backend (auth header, errors, downloads, upload progress)
   lib/types.ts             response shapes (mirror backend docs/API.md)
@@ -71,6 +71,5 @@ How data stays fresh: every query is keyed by the dataset's current version. App
 reverting or switching sheets creates a new version, so every page refetches; going back to a version
 you've already seen is instant.
 
-Theme: the Light / Auto / Dark switch is at the bottom of the sidebar. Auto follows the computer's setting.
-Chart colours were checked for contrast and colour-blind separation in both themes (negative
+Chart colours were checked for contrast and colour-blind separation (negative
 correlations use plum rather than red, so they stay distinct from green for red-green colour blindness).

@@ -40,6 +40,10 @@ def get_export_service(request: Request):
     return _service(request, "export_service")
 
 
+def get_checks_service(request: Request):
+    return _service(request, "checks_service")
+
+
 def get_report_service(request: Request):
     return _service(request, "report_service")
 

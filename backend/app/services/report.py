@@ -21,9 +21,10 @@ MAX_PROFILED_COLUMNS = 25
 
 
 class ReportService:
-    def __init__(self, analysis: AnalysisService, keep_versions: int | None = None) -> None:
+    def __init__(self, analysis: AnalysisService, keep_versions: int | None = None, checks=None) -> None:
         self.analysis = analysis
         self.keep_versions = keep_versions
+        self.checks = checks  # ChecksService: the report counts the user's failing checks too
 
     def _frame_loader(self, resolved: Resolved):
         holder: dict = {}
@@ -44,6 +45,8 @@ class ReportService:
         # Same cache kinds and parameters as the Explore endpoints.
         overview = svc.cached(r, "overview", None, lambda: profile.overview(frame()))
         health = svc.cached(r, "health", None, lambda: quality.health_report(frame()))
+        if self.checks is not None:
+            health = self.checks.health_with_checks(user_id, r, health)
         columns = svc.cached(r, "columns", None, lambda: {"columns": profile.columns_profile(frame())})["columns"]
         correlations = svc.cached(r, "correlations", {"method": "pearson"},
                                   lambda: relationships.correlation_matrix(frame(), "pearson"))
@@ -65,6 +68,8 @@ class ReportService:
                 "overview": svc.cached(first, "overview", None, lambda: profile.overview(first_frame())),
                 "health": svc.cached(first, "health", None, lambda: quality.health_report(first_frame())),
             }
+            if self.checks is not None:  # judge "before" by the same saved checks, so the comparison is fair
+                before["health"] = self.checks.health_with_checks(user_id, first, before["health"])
 
         dataset = asdict(r.dataset)
         return build_report(

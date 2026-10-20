@@ -270,7 +270,7 @@ def _suggest_for_text(name: str, values: pl.Series, trimmed: pl.Series, total: i
     if numeric_suggestion:
         suggestions.append(numeric_suggestion)
     else:
-        for builder in (_suggest_formatted_numbers, _suggest_day_month_dates, _suggest_yes_no):
+        for builder in (_suggest_formatted_numbers, _suggest_mostly_iso_dates, _suggest_day_month_dates, _suggest_yes_no):
             suggestion = builder(name, trimmed, total)
             if suggestion:
                 suggestions.append(suggestion)
@@ -345,6 +345,27 @@ def _suggest_formatted_numbers(name: str, trimmed: pl.Series, total: int) -> dic
             "type": "parse_formatted_number",
             "params": {"column": name, "is_percent": is_percent},
         },
+    }
+
+
+def _suggest_mostly_iso_dates(name: str, trimmed: pl.Series, total: int) -> dict | None:
+    """Mostly YYYY-MM-DD, but some values aren't valid dates (e.g. '2025-15-40'), so ingest kept it as text."""
+    looks = trimmed.str.contains(DATE_ISO_RE)
+    parsed = trimmed.str.to_date("%Y-%m-%d", strict=False)
+    valid = int(parsed.is_not_null().sum())
+    if int(looks.sum()) / total < MOSTLY_NUMERIC_RATIO or valid / total < MOSTLY_NUMERIC_RATIO or valid == total:
+        return None
+    failing = trimmed.filter(parsed.is_null())
+    examples = _examples(failing)
+    shown = ", ".join(repr(e["value"]) for e in examples[:3])
+    return {
+        "id": f"convert_to_date:{name}",
+        "column": name,
+        "kind": "convert_to_date",
+        "message": f"'{name}' is {valid / total:.0%} dates (YYYY-MM-DD). {total - valid} value(s) like {shown} aren't valid dates. "
+                   "Convert it, treating those values as missing?",
+        "evidence": {"convertible": valid, "failing": total - valid, "total": total, "failing_values": examples},
+        "operation": {"type": "convert_type", "params": {"column": name, "to": "date", "format": "%Y-%m-%d"}},
     }
 
 

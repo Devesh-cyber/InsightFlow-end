@@ -18,6 +18,7 @@ from app.db.models import DatasetRecord, NewVersion, VersionRecord
 from app.db.repository import VersionConflictError
 from app.engine.operations import column_info, run_operation
 from app.engine.quality import health_report
+from app.engine.validity import relationship_damage
 from app.services.analysis import AnalysisService
 from app.services.datasets import DatasetService, parquet_path, write_parquet
 
@@ -52,18 +53,26 @@ def version_view(version: VersionRecord, current: int) -> dict:
 
 
 class CleaningService:
-    def __init__(self, analysis: AnalysisService, datasets: DatasetService) -> None:
+    def __init__(self, analysis: AnalysisService, datasets: DatasetService, checks=None) -> None:
         self.analysis = analysis
         self.datasets = datasets
+        self.checks = checks  # ChecksService: user's saved checks appear as issues too
 
     def recommendations(self, user_id: UUID, dataset_id: UUID) -> dict:
         resolved = self.analysis.resolve(user_id, dataset_id)
         report = self.analysis.cached(resolved, "health", None, lambda: health_report(self.analysis.frame(resolved)))
+        if self.checks is not None:
+            report = self.checks.health_with_checks(user_id, resolved, report)
         return {"version": resolved.version.version, "issues": report["issues"]}
 
     def preview(self, user_id: UUID, dataset_id: UUID, op_type: str, params: dict | None) -> dict:
         resolved = self.analysis.resolve(user_id, dataset_id)
-        result = run_operation(self.analysis.frame(resolved), op_type, params, with_samples=True)
+        before = self.analysis.frame(resolved)
+        result = run_operation(before, op_type, params, with_samples=True)
+        changed = set(result.effect["changed_per_column"])
+        if changed:
+            # Re-check arithmetic between columns: warn if this step breaks a relationship that held before.
+            result.warnings.extend(relationship_damage(before, result.df, changed))
         return {
             "version": resolved.version.version,
             "operation": result.operation,

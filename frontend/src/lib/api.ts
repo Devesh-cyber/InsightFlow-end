@@ -2,8 +2,8 @@
 import { config } from "./config";
 import { accessToken, supabase } from "./supabase";
 import type {
-  ChartData, ChartOptions, ColumnDetail, ColumnProfile, Correlations, DatasetDetail, DatasetSummary, Health, Issue, Me,
-  Operation, Overview, Preview, Relationship, RowsPage, Versions,
+  ChartData, ChartOptions, CheckDef, ChecksView, ColumnDetail, ColumnProfile, Correlations, DatasetDetail, DatasetSummary, Health, Issue, MatchingRows, Me,
+  Operation, Overview, Preview, Relationship, RowMatch, RowsPage, Versions,
 } from "./types";
 
 export class ApiError extends Error {
@@ -138,12 +138,16 @@ export const api = {
   chartData: (id: string, q: { type: string; x: string; y?: string; agg?: string; bins?: number }) =>
     request<ChartData>("GET", `${ds(id)}/charts/data`, { query: q }),
 
+  matchingRows: (id: string, match: RowMatch, offset: number, limit: number, version?: number) =>
+    request<MatchingRows>("POST", `${ds(id)}/matching-rows`, { body: { ...match, offset, limit, version } }),
   recommendations: (id: string) => request<{ version: number; issues: Issue[] }>("GET", `${ds(id)}/recommendations`),
   preview: (id: string, op: Operation) => request<Preview>("POST", `${ds(id)}/preview`, { body: op }),
   apply: (id: string, op: Operation, expected_version: number) =>
     request<{ dataset: DatasetDetail; applied: { description: string; effect: Preview["effect"]; warnings: string[] } }>(
       "POST", `${ds(id)}/apply`, { body: { ...op, expected_version } }),
   versions: (id: string) => request<Versions>("GET", `${ds(id)}/versions`),
+  checks: (id: string, version?: number) => request<ChecksView>("GET", `${ds(id)}/checks`, { query: { version } }),
+  saveChecks: (id: string, checks: CheckDef[]) => request<ChecksView>("PUT", `${ds(id)}/checks`, { body: { checks } }),
   revert: (id: string, to_version: number, expected_version: number) =>
     request<DatasetDetail>("POST", `${ds(id)}/revert`, { body: { to_version, expected_version } }),
 

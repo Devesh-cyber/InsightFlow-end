@@ -1,10 +1,10 @@
 // Data hooks. Every query key includes the dataset's current version, so after a
 // cleaning step (new version) every page fetches fresh numbers automatically,
 // while revisiting a version you already saw is instant (cached).
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import type { DatasetDetail } from "../lib/types";
+import type { CheckDef, DatasetDetail } from "../lib/types";
 
 export function useDatasetId(): string {
   const { id } = useParams();
@@ -52,6 +52,19 @@ export const useChartData = (q: { type: string; x: string; y?: string; agg?: str
   useVersioned("chart", [q], (id) => api.chartData(id, q!), !!q);
 export const useRecommendations = () => useVersioned("recs", [], (id) => api.recommendations(id));
 export const useVersions = () => useVersioned("versions", [], (id) => api.versions(id));
+export const useChecks = () => useVersioned("checks", [], (id, v) => api.checks(id, v));
+
+/** Saving checks doesn't create a version, so drop the cached health / issues / checks of every version. */
+export function useSaveChecks() {
+  const id = useDatasetId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (checks: CheckDef[]) => api.saveChecks(id, checks),
+    onSuccess: () => qc.invalidateQueries({
+      predicate: (q) => q.queryKey[0] === "ds" && q.queryKey[1] === id && ["health", "recs", "checks"].includes(String(q.queryKey[3])),
+    }),
+  });
+}
 
 /** After apply / revert / sheet switch: store the new dataset and refresh lists. */
 export function useAfterChange() {

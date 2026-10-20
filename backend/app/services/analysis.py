@@ -25,6 +25,10 @@ from app.storage.client import ObjectStorage
 
 logger = logging.getLogger("app.services.analysis")
 
+# Bump when the analysis logic changes: results cached by an older engine (in memory
+# or in Postgres) are then simply not found, and get recomputed with the new rules.
+ENGINE_VERSION = "2026-10-20.matches"
+
 # Results worth persisting in Postgres: they're requested often and cost a
 # full scan. Parameterised results (charts, relationships) stay in memory.
 PERSISTED_KINDS = {"overview", "columns", "health"}
@@ -81,7 +85,7 @@ class AnalysisService:
 
     def cached(self, resolved: Resolved, kind: str, params: dict | None, compute: Callable[[], dict]) -> dict:
         dataset_id, version = resolved.dataset.id, resolved.version.version
-        hashed = params_key(params)
+        hashed = params_key({"params": params, "engine": ENGINE_VERSION})
         key = (dataset_id, version, kind, hashed)
 
         hit = self.results.get(key)

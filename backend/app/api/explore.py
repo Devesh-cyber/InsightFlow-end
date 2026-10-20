@@ -6,16 +6,18 @@ job limiter in a worker thread; results are cached per (dataset, version).
 Responses are plain JSON documents described in docs/API.md.
 """
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import get_analysis_service, get_job_limiter
 from app.core.auth import AuthUser, get_current_user
 from app.core.errors import UnprocessableError
 from app.core.jobs import JobLimiter
-from app.engine import charts, profile, quality, relationships
+from app.engine import charts, matching, profile, quality, relationships
+from app.engine.rules import Condition
 from app.services.analysis import AnalysisService
 
 router = APIRouter(prefix="/v1/datasets/{dataset_id}", tags=["explore"])
@@ -65,13 +67,17 @@ async def rows(
 
 @router.get("/health")
 async def health(
-    dataset_id: UUID, version: int | None = VersionQuery,
+    request: Request, dataset_id: UUID, version: int | None = VersionQuery,
     user: AuthUser = Depends(get_current_user), svc: AnalysisService = Depends(get_analysis_service),
     jobs: JobLimiter = Depends(get_job_limiter),
 ) -> dict[str, Any]:
+    checks = getattr(request.app.state, "checks_service", None)
     def work():
         r = svc.resolve(user.id, dataset_id, version)
-        return {"version": r.version.version, **svc.cached(r, "health", None, lambda: quality.health_report(svc.frame(r)))}
+        report = svc.cached(r, "health", None, lambda: quality.health_report(svc.frame(r)))
+        if checks is not None:
+            report = checks.health_with_checks(user.id, r, report)
+        return {"version": r.version.version, **report}
     return await _run(jobs, work)
 
 
@@ -171,5 +177,29 @@ async def chart_data(
         r = svc.resolve(user.id, dataset_id, version)
         params = {"type": type, "x": x, "y": y, "agg": agg, "bins": bins}
         result = svc.cached(r, "chart", params, lambda: charts.data(svc.frame(r), type, x, y, agg, bins))
+        return {"version": r.version.version, **result}
+    return await _run(jobs, work)
+
+
+class MatchQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conditions: list[Condition] = Field(default_factory=list, max_length=10)
+    combine: Literal["and", "or"] = "and"
+    duplicate_rows: bool = False
+    offset: int = Field(0, ge=0)
+    limit: int = Field(20, ge=1, le=matching.MAX_PAGE)
+    version: int | None = Field(None, ge=1)
+
+
+@router.post("/matching-rows")
+async def matching_rows(
+    dataset_id: UUID, body: MatchQuery,
+    user: AuthUser = Depends(get_current_user), svc: AnalysisService = Depends(get_analysis_service),
+    jobs: JobLimiter = Depends(get_job_limiter),
+) -> dict[str, Any]:
+    """The rows an issue, rule or check is about (read-only). Use an issue's `match` as the body."""
+    def work():
+        r = svc.resolve(user.id, dataset_id, body.version)
+        result = matching.matching_rows(svc.frame(r), body.conditions, body.combine, body.duplicate_rows, body.offset, body.limit)
         return {"version": r.version.version, **result}
     return await _run(jobs, work)

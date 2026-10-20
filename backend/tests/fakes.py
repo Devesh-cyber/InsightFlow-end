@@ -124,6 +124,18 @@ class FakeRepository:
             del self.versions[key]
         return paths
 
+    def get_checks(self, user_id: UUID, dataset_id: UUID) -> list[dict] | None:
+        if self.get_dataset(user_id, dataset_id) is None:
+            return None
+        return list(getattr(self, "checks", {}).get(dataset_id, []))
+
+    def set_checks(self, user_id: UUID, dataset_id: UUID, checks: list[dict]) -> list[dict] | None:
+        if self.get_dataset(user_id, dataset_id) is None:
+            return None
+        self.checks = getattr(self, "checks", {})
+        self.checks[dataset_id] = list(checks)
+        return list(checks)
+
     def list_versions(self, user_id: UUID, dataset_id: UUID) -> list[VersionRecord]:
         if self.get_dataset(user_id, dataset_id) is None:
             return []

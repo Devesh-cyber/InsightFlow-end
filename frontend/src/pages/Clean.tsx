@@ -1,14 +1,17 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ChecksPanel } from "../components/ChecksPanel";
 import { IssueCard } from "../components/IssueCard";
 import { OperationBuilder } from "../components/OperationBuilder";
+import { RuleBuilder } from "../components/RuleBuilder";
 import { errorText, useToast } from "../components/Toast";
 import { ErrorState, Loading, Note, PageHead, Skeleton, Tile } from "../components/ui";
-import { useAfterChange, useDataset, useDatasetId, useRecommendations } from "../hooks/data";
+import { useAfterChange, useChecks, useDataset, useDatasetId, useRecommendations, useSaveChecks } from "../hooks/data";
 import { ApiError, api } from "../lib/api";
 import { cell, num } from "../lib/format";
-import type { Cell, Operation, Preview } from "../lib/types";
+import { newCheckId } from "../lib/rules";
+import type { Cell, CheckDef, Operation, Preview, RuleCondition } from "../lib/types";
 
 function Value({ v, tone }: { v: Cell; tone?: "old" | "new" }) {
   if (v === null || v === undefined) return <span className="chip" style={{ fontStyle: "italic", color: "var(--muted)", fontFamily: "var(--sans)" }}>missing</span>;
@@ -16,12 +19,11 @@ function Value({ v, tone }: { v: Cell; tone?: "old" | "new" }) {
   return <span className="chip" style={{ ...style, whiteSpace: "pre" }}>{cell(v) === "" ? '""' : cell(v)}</span>;
 }
 
-function PreviewView({ op, label, onCancel }: { op: Operation; label?: string; onCancel: () => void }) {
+function PreviewView({ op, label, onCancel, onApplied }: { op: Operation; label?: string; onCancel: () => void; onApplied: () => void }) {
   const id = useDatasetId();
   const ds = useDataset(id);
   const version = ds.data?.current_version;
   const after = useAfterChange();
-  const navigate = useNavigate();
   const { notify } = useToast();
   const [base] = useState(version); // the version this preview is about; don't re-preview after applying
   const preview = useQuery({
@@ -35,8 +37,20 @@ function PreviewView({ op, label, onCancel }: { op: Operation; label?: string; o
     mutationFn: () => api.apply(id, op, (base ?? version) as number),
     onSuccess: (res) => {
       after(res.dataset);
-      notify(`Applied: ${res.applied.description}. Now on version ${res.dataset.current_version}.`);
-      navigate(`/d/${id}/history`);
+      const previous = (base ?? version) as number;
+      const created = res.dataset.current_version;
+      notify(`Applied: ${res.applied.description}. Now on version ${created}.`, {
+        label: "Undo",
+        run: () => {
+          api.revert(id, previous, created).then((d) => {
+            after(d);
+            notify(`Undone. Version ${d.current_version} matches version ${previous}.`);
+          }).catch((e) => notify(e instanceof ApiError && e.code === "version_conflict"
+            ? "Can't undo this step: newer changes were made since. Use History to go back to any version."
+            : errorText(e)));
+        },
+      });
+      onApplied(); // stay where the user was: no jump to History
     },
   });
   const conflict = apply.error instanceof ApiError && apply.error.code === "version_conflict";
@@ -163,12 +177,27 @@ export default function Clean() {
   const recs = useRecommendations();
   const location = useLocation();
   const navigate = useNavigate();
-  const incoming = (location.state as { operation?: Operation; label?: string } | null) ?? null;
+  const incoming = (location.state as { operation?: Operation; label?: string; from?: string } | null) ?? null;
+  const [returnTo, setReturnTo] = useState<string | null>(incoming?.from ?? null);
   const [current, setCurrent] = useState<{ op: Operation; label?: string } | null>(incoming?.operation ? { op: incoming.operation, label: incoming.label } : null);
+  const [mode, setMode] = useState<"rule" | "step">("rule");
+  const checks = useChecks();
+  const saveChecks = useSaveChecks();
+  const { notify } = useToast();
+
+  const saveCheck = (name: string, conditions: RuleCondition[], combine: "and" | "or") => {
+    const existing: CheckDef[] = (checks.data?.checks ?? []).map(({ result: _r, ...c }) => c);
+    if (existing.length >= 25) return notify("You can keep up to 25 checks per dataset. Delete one first.");
+    saveChecks.mutate([...existing, { id: newCheckId(), name, conditions, combine }], {
+      onSuccess: () => notify(`Saved check "${name}". It now counts in Health and the report.`),
+      onError: (e) => notify(errorText(e)),
+    });
+  };
 
   useEffect(() => {
     if (incoming?.operation) {
       setCurrent({ op: incoming.operation, label: incoming.label });
+      setReturnTo(incoming.from ?? null);
       navigate(location.pathname, { replace: true, state: null }); // a refresh shouldn't re-open the preview
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,7 +205,14 @@ export default function Clean() {
 
   useEffect(() => window.scrollTo({ top: 0 }), [current]);
 
-  if (current) return <PreviewView op={current.op} label={current.label} onCancel={() => setCurrent(null)} />;
+  const closePreview = () => {
+    setCurrent(null);
+    // previews opened from another page (Health, Overview) go back there
+    if (returnTo && returnTo !== location.pathname) navigate(returnTo);
+    setReturnTo(null);
+  };
+
+  if (current) return <PreviewView op={current.op} label={current.label} onCancel={closePreview} onApplied={closePreview} />;
   if (ds.isPending) return <Loading />;
   if (ds.isError) return <ErrorState error={ds.error} retry={() => ds.refetch()} />;
 
@@ -184,15 +220,29 @@ export default function Clean() {
     <>
       <PageHead title="Clean" sub="Every step is previewed first and saved as a new version. The original file is never changed." />
       <div className="row" style={{ alignItems: "flex-start", gap: 24 }}>
-        <section style={{ flex: "3 1 440px", minWidth: 0 }} className="stack" aria-label="Recommended">
-          <h2>Recommended steps</h2>
+        <section style={{ flex: "3 1 440px", minWidth: 0 }} className="stack" aria-label="Issues to review">
+          <h2>Issues to review</h2>
+          <p className="small muted" style={{ marginTop: -4 }}>Each option is previewed first. Only fixes that can't distort the data are marked recommended.</p>
           {recs.isPending ? <Skeleton height={240} /> : recs.isError ? <ErrorState error={recs.error} /> : recs.data.issues.length === 0 ? (
-            <Note tone="accent" title="Nothing to fix.">No issues found in version {ds.data.current_version}. You can still build a step on the right.</Note>
+            <Note tone="accent" title="Nothing to fix.">No issues found in version {ds.data.current_version}. You can still build a rule on the right.</Note>
           ) : recs.data.issues.map((i) => <IssueCard key={i.id} issue={i} />)}
         </section>
-        <section style={{ flex: "2 1 320px", minWidth: 0 }} className="stack" aria-label="Build a step">
-          <h2>Build your own step</h2>
-          <OperationBuilder key={ds.data.current_version} columns={ds.data.columns} onPreview={(op, label) => setCurrent({ op, label })} />
+        <section style={{ flex: "2 1 340px", minWidth: 0 }} className="stack" aria-label="Build a step">
+          <div className="row spread">
+            <h2>Build your own</h2>
+            <div className="segmented" role="tablist" aria-label="Builder">
+              <button type="button" role="tab" aria-selected={mode === "rule"} onClick={() => setMode("rule")}>Custom rule</button>
+              <button type="button" role="tab" aria-selected={mode === "step"} onClick={() => setMode("step")}>Quick step</button>
+            </div>
+          </div>
+          {mode === "rule" ? (
+            <RuleBuilder key={ds.data.current_version} columns={ds.data.columns} saving={saveChecks.isPending}
+              onPreview={(op, label) => setCurrent({ op, label })} onSaveCheck={saveCheck} />
+          ) : (
+            <OperationBuilder key={ds.data.current_version} columns={ds.data.columns} onPreview={(op, label) => setCurrent({ op, label })} />
+          )}
+          <h2 style={{ marginTop: 8 }}>Saved checks</h2>
+          <ChecksPanel />
           <p className="xs muted">Changed your mind later? <Link to={`/d/${id}/history`}>History</Link> can revert any step.</p>
         </section>
       </div>

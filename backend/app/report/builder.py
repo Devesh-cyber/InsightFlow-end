@@ -247,6 +247,18 @@ def _comparison(before_o: dict | None, before_h: dict | None, now_o: dict, now_h
     return out
 
 
+def _estimate_kind(operation: dict) -> str | None:
+    """Steps whose new values are guesses rather than observed data."""
+    kind, params = operation.get("type"), operation.get("params") or {}
+    if kind == "fill_missing" and params.get("strategy") in ("mean", "median", "mode", "forward", "backward", "constant"):
+        return "filled gaps"
+    if kind == "handle_outliers" and params.get("action") == "cap":
+        return "capped values"
+    if kind == "apply_rule" and params.get("action") in ("clamp", "set_value"):
+        return "replaced values"
+    return None
+
+
 def _findings(meta: dict, now_o: dict, now_h: dict, before_o: dict | None, before_h: dict | None, steps: list[dict], pairs: list[dict]) -> list[str]:
     found = [f"{fmt_num(now_o['rows'])} rows and {fmt_num(now_o['columns'])} columns from {meta['source_filename']}"
              + (f" (sheet '{meta['sheet_name']}')" if meta.get("sheet_name") else "") + "."]
@@ -261,6 +273,15 @@ def _findings(meta: dict, now_o: dict, now_h: dict, before_o: dict | None, befor
     removed = sum(s.get("rows_removed") or 0 for s in cleaning)
     if cells or removed:
         found.append(f"Cleaning changed {fmt_num(cells)} cell(s) and removed {fmt_num(removed)} row(s) in total.")
+    estimated = sum(s.get("cells_changed") or 0 for s in cleaning if _estimate_kind(s["operation"]))
+    if estimated:
+        kinds = sorted({_estimate_kind(s["operation"]) for s in cleaning if _estimate_kind(s["operation"])})
+        found.append(f"{fmt_num(estimated)} of the changed cells are estimates ({', '.join(kinds)}), not values that were "
+                     "in the data. They are marked 'estimate' in the cleaning log; treat totals built on them with care.")
+    failing = [i for i in now_h.get("issues", []) if i["category"] == "check_failed"]
+    if failing:
+        found.append(f"{len(failing)} of your saved checks still fail: " + "; ".join(i["title"].split("'")[1] for i in failing[:3])
+                     + (" …" if len(failing) > 3 else "") + ".")
     completeness = f"The data is {fmt_pct(now_o['completeness_pct'])} complete ({fmt_num(now_o['missing_cells'])} empty cell(s))."
     if before_o is not None and now_o["missing_cells"] > before_o["missing_cells"]:
         completeness += (" That is more empty cells than before, because cleaning turned invalid entries "
@@ -368,7 +389,8 @@ def build_report(
                 {"version": s["version"], "description": s["description"], "rows": fmt_num(s["rows"]), "columns": fmt_num(s["columns"]),
                  "cells_changed": fmt_num(s.get("cells_changed")) if s.get("cells_changed") is not None else "—",
                  "rows_removed": fmt_num(s.get("rows_removed")) if s.get("rows_removed") is not None else "—",
-                 "warnings": s.get("warnings") or [], "is_current": s.get("is_current", False)}
+                 "warnings": s.get("warnings") or [], "is_current": s.get("is_current", False),
+                 "estimate": _estimate_kind(s["operation"])}
                 for s in steps
             ],
             "count": sum(1 for s in steps if s["operation"].get("type") != "upload"),

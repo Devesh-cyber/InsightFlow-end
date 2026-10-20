@@ -27,7 +27,7 @@ def run(df, op, **params):
 
 
 def test_every_operation_has_a_description():
-    assert len(OPERATIONS) == 15
+    assert len(OPERATIONS) == 17  # 15 built-in steps + apply_rule + standardize_values
 
 
 def test_convert_to_integer_with_markers(df):

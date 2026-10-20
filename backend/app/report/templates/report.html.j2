@@ -119,7 +119,8 @@ dl.glossary dd { margin: 1mm 0 0; color: var(--text); }
   html, body { background: #fff; }
   .screen-hint { display: none; }
   .page { margin: 0; border: 0; border-radius: 0; padding: 0; max-width: none; }
-  .cover { min-height: 262mm; break-after: page; }
+  /* fits inside one A4 content box (297 - 30 mm margins); the next section starts a new page itself */
+  .cover { min-height: 0; height: 245mm; overflow: hidden; break-inside: avoid; }
   section.major { break-before: page; margin-top: 0; }
   section.keep { break-inside: avoid; }
   .cover { margin-bottom: 0; }
@@ -153,7 +154,7 @@ dl.glossary dd { margin: 1mm 0 0; color: var(--text); }
       </dl>
     </div>
     <div class="cover-foot">
-      <span>Contents: 1 Summary · 2 The data · 3 Data quality · 4 Cleaning log · 5 Column profiles · 6 Relationships · 7 Reproduce it · 8 Methods</span>
+      <span>Summary · Data · Quality · Cleaning log · Columns · Relationships · Reproduce · Methods</span>
     </div>
   </div>
 
@@ -253,7 +254,7 @@ dl.glossary dd { margin: 1mm 0 0; color: var(--text); }
           {% for s in r.cleaning.steps %}
           <tr>
             <td><span class="chip{% if s.is_current %} accent{% endif %}">v{{ s.version }}</span></td>
-            <td>{{ s.description }}{% for w in s.warnings %}<div class="small flag" style="font-weight:500">{{ w }}</div>{% endfor %}</td>
+            <td>{{ s.description }}{% if s.estimate %} <span class="chip" title="These values are estimates, not observed data">estimate · {{ s.estimate }}</span>{% endif %}{% for w in s.warnings %}<div class="small flag" style="font-weight:500">{{ w }}</div>{% endfor %}</td>
             <td class="r n">{{ s.cells_changed }}</td>
             <td class="r n">{{ s.rows_removed }}</td>
             <td class="r n">{{ s.rows }} × {{ s.columns }}</td>

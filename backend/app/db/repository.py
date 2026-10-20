@@ -55,6 +55,8 @@ class DatasetRepository(Protocol):
     def list_versions(self, user_id: UUID, dataset_id: UUID) -> list[VersionRecord]: ...
     def get_analysis(self, dataset_id: UUID, version: int, kind: str, params_hash: str) -> dict | None: ...
     def put_analysis(self, dataset_id: UUID, version: int, kind: str, params_hash: str, result: dict) -> None: ...
+    def get_checks(self, user_id: UUID, dataset_id: UUID) -> list[dict] | None: ...
+    def set_checks(self, user_id: UUID, dataset_id: UUID, checks: list[dict]) -> list[dict] | None: ...
 
 
 _DATASET_COLUMNS = """
@@ -302,6 +304,23 @@ class PostgresRepository:
                 """,
                 (dataset_id, version, kind, params_hash, Jsonb(result)),
             )
+
+    def get_checks(self, user_id: UUID, dataset_id: UUID) -> list[dict] | None:
+        """The user's saved checks for a dataset ([] if none), or None if the dataset isn't theirs."""
+        def query(conn):
+            return conn.execute(
+                "select checks from public.datasets where id = %s and user_id = %s", (dataset_id, user_id)
+            ).fetchone()
+        row = self._read(query)
+        return None if row is None else list(row[0] or [])
+
+    def set_checks(self, user_id: UUID, dataset_id: UUID, checks: list[dict]) -> list[dict] | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "update public.datasets set checks = %s where id = %s and user_id = %s returning checks",
+                (Jsonb(checks), dataset_id, user_id),
+            ).fetchone()
+        return None if row is None else list(row[0] or [])
 
     @staticmethod
     def _insert_version(conn, dataset_id: UUID, number: int, version: NewVersion) -> None:
