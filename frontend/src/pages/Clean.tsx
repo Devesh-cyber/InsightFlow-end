@@ -2,12 +2,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ChecksPanel } from "../components/ChecksPanel";
-import { IssueCard } from "../components/IssueCard";
+import { StageIssues, StageStrip, defaultStage, type StageTab } from "../components/Stages";
 import { OperationBuilder } from "../components/OperationBuilder";
 import { RuleBuilder } from "../components/RuleBuilder";
 import { errorText, useToast } from "../components/Toast";
 import { ErrorState, Loading, Note, PageHead, Skeleton, Tile } from "../components/ui";
-import { useAfterChange, useChecks, useDataset, useDatasetId, useRecommendations, useSaveChecks } from "../hooks/data";
+import { useAfterChange, useChecks, useDataset, useDatasetId, useHealth, useSaveChecks } from "../hooks/data";
 import { ApiError, api } from "../lib/api";
 import { cell, num } from "../lib/format";
 import { newCheckId } from "../lib/rules";
@@ -174,7 +174,8 @@ function PreviewBody({ p }: { p: Preview }) {
 export default function Clean() {
   const id = useDatasetId();
   const ds = useDataset(id);
-  const recs = useRecommendations();
+  const health = useHealth();
+  const [stage, setStage] = useState<StageTab | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const incoming = (location.state as { operation?: Operation; label?: string; from?: string } | null) ?? null;
@@ -221,11 +222,12 @@ export default function Clean() {
       <PageHead title="Clean" sub="Every step is previewed first and saved as a new version. The original file is never changed." />
       <div className="row" style={{ alignItems: "flex-start", gap: 24 }}>
         <section style={{ flex: "3 1 440px", minWidth: 0 }} className="stack" aria-label="Issues to review">
-          <h2>Issues to review</h2>
-          <p className="small muted" style={{ marginTop: -4 }}>Each option is previewed first. Only fixes that can't distort the data are marked recommended.</p>
-          {recs.isPending ? <Skeleton height={240} /> : recs.isError ? <ErrorState error={recs.error} /> : recs.data.issues.length === 0 ? (
-            <Note tone="accent" title="Nothing to fix.">No issues found in version {ds.data.current_version}. You can still build a rule on the right.</Note>
-          ) : recs.data.issues.map((i) => <IssueCard key={i.id} issue={i} />)}
+          {health.isPending ? <Skeleton height={240} /> : health.isError ? <ErrorState error={health.error} /> : (
+            <>
+              <StageStrip health={health.data} active={stage ?? defaultStage(health.data)} onSelect={setStage} />
+              <StageIssues health={health.data} stage={stage ?? defaultStage(health.data)} onStage={setStage} />
+            </>
+          )}
         </section>
         <section style={{ flex: "2 1 340px", minWidth: 0 }} className="stack" aria-label="Build a step">
           <div className="row spread">

@@ -27,7 +27,7 @@ logger = logging.getLogger("app.services.analysis")
 
 # Bump when the analysis logic changes: results cached by an older engine (in memory
 # or in Postgres) are then simply not found, and get recomputed with the new rules.
-ENGINE_VERSION = "2026-10-20.matches"
+ENGINE_VERSION = "2026-10-20.stages"
 
 # Results worth persisting in Postgres: they're requested often and cost a
 # full scan. Parameterised results (charts, relationships) stay in memory.

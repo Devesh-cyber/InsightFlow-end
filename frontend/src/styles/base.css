@@ -204,3 +204,19 @@ table.data th.hl { color: var(--accent-strong); }
   .main { margin: 0 8px 8px; padding: 24px 16px 40px; }
   h1 { font-size: 22px; }
 }
+
+/* ------------------------------------------------------------------ cleaning stages */
+.stages { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.stage-wrap { display: inline-flex; align-items: center; gap: 6px; }
+.stage-arrow { color: var(--muted); }
+.stage { display: inline-flex; align-items: center; gap: 10px; padding: 8px 14px 8px 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); color: var(--text); text-align: left; font: inherit; }
+button.stage { cursor: pointer; }
+button.stage[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.stage-n { width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--sunken); font-weight: 700; font-size: 13px; color: var(--muted); }
+.stage-n.done { background: var(--accent-soft); color: var(--accent-strong); }
+.stage-text { display: flex; flex-direction: column; line-height: 1.25; }
+.kept summary { cursor: pointer; }
+.kept-issue { padding: 10px 14px; opacity: 0.85; }
+.keep-btn { color: var(--muted); }
+.keep-btn:hover { color: var(--text); }
+@media (max-width: 700px) { .stage-arrow { display: none; } .stage { flex: 1 1 100%; } .stage-wrap { flex: 1 1 100%; } }

@@ -57,6 +57,8 @@ class DatasetRepository(Protocol):
     def put_analysis(self, dataset_id: UUID, version: int, kind: str, params_hash: str, result: dict) -> None: ...
     def get_checks(self, user_id: UUID, dataset_id: UUID) -> list[dict] | None: ...
     def set_checks(self, user_id: UUID, dataset_id: UUID, checks: list[dict]) -> list[dict] | None: ...
+    def get_context(self, user_id: UUID, dataset_id: UUID) -> dict | None: ...
+    def set_reviewed(self, user_id: UUID, dataset_id: UUID, reviewed: list[dict]) -> list[dict] | None: ...
 
 
 _DATASET_COLUMNS = """
@@ -319,6 +321,23 @@ class PostgresRepository:
             row = conn.execute(
                 "update public.datasets set checks = %s where id = %s and user_id = %s returning checks",
                 (Jsonb(checks), dataset_id, user_id),
+            ).fetchone()
+        return None if row is None else list(row[0] or [])
+
+    def get_context(self, user_id: UUID, dataset_id: UUID) -> dict | None:
+        """Saved checks and 'looks fine' issues in one read, or None if the dataset isn't theirs."""
+        def query(conn):
+            return conn.execute(
+                "select checks, reviewed from public.datasets where id = %s and user_id = %s", (dataset_id, user_id)
+            ).fetchone()
+        row = self._read(query)
+        return None if row is None else {"checks": list(row[0] or []), "reviewed": list(row[1] or [])}
+
+    def set_reviewed(self, user_id: UUID, dataset_id: UUID, reviewed: list[dict]) -> list[dict] | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "update public.datasets set reviewed = %s where id = %s and user_id = %s returning reviewed",
+                (Jsonb(reviewed), dataset_id, user_id),
             ).fetchone()
         return None if row is None else list(row[0] or [])
 

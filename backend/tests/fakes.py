@@ -136,6 +136,19 @@ class FakeRepository:
         self.checks[dataset_id] = list(checks)
         return list(checks)
 
+    def get_context(self, user_id: UUID, dataset_id: UUID) -> dict | None:
+        if self.get_dataset(user_id, dataset_id) is None:
+            return None
+        return {"checks": list(getattr(self, "checks", {}).get(dataset_id, [])),
+                "reviewed": list(getattr(self, "reviewed", {}).get(dataset_id, []))}
+
+    def set_reviewed(self, user_id: UUID, dataset_id: UUID, reviewed: list[dict]) -> list[dict] | None:
+        if self.get_dataset(user_id, dataset_id) is None:
+            return None
+        self.reviewed = getattr(self, "reviewed", {})
+        self.reviewed[dataset_id] = list(reviewed)
+        return list(reviewed)
+
     def list_versions(self, user_id: UUID, dataset_id: UUID) -> list[VersionRecord]:
         if self.get_dataset(user_id, dataset_id) is None:
             return []

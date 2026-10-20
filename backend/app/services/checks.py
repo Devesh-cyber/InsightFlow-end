@@ -8,6 +8,7 @@ into Health, Recommendations and the report as `check_failed` issues, so a datas
 can't look "clean" while one of the user's own rules is broken.
 """
 
+import hashlib
 import re
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from app.core.cache import params_key
 from app.core.errors import NotFoundError, UnprocessableError
 from app.engine.jsonsafe import to_json
 from app.engine.matching import with_matches
+from app.engine.quality import score_issues, tag_stages
 from app.engine.rules import Condition, describe_conditions, evaluate
 from app.services.analysis import AnalysisService, Resolved
 
@@ -25,6 +27,7 @@ MAX_CHECKS = 25
 SAMPLE_ROWS = 5
 CHECK_PENALTY = 5.0
 CHECK_PENALTY_MAX = 30.0
+MAX_REVIEWED = 300
 
 
 class CheckDefinition(BaseModel):
@@ -123,26 +126,47 @@ def check_issues(checks: list[CheckDefinition], results: list[dict]) -> list[dic
     return with_matches(issues)
 
 
-def merge_into_health(health: dict, extra: list[dict]) -> dict:
-    """Add check issues to a (cached) health report and re-score it. Never mutates the input."""
-    if not extra:
-        return health
-    issues = health["issues"] + extra
-    failing = sum(1 for i in extra if i["category"] == "check_failed")
-    deductions = [d for d in health["deductions"] if d["reason"] != "Your checks failing"]
-    if failing:
-        deductions.append({"reason": "Your checks failing", "points": round(min(CHECK_PENALTY_MAX, CHECK_PENALTY * failing), 1)})
-    score = round(max(0.0, 100.0 - sum(d["points"] for d in deductions)), 1)
-    grade = "excellent" if score >= 95 else "good" if score >= 80 else "fair" if score >= 60 else "poor"
-    summary = dict(health["summary"])
-    by_category = dict(summary.get("by_category", {}))
-    for i in extra:
-        summary[i["severity"]] = summary.get(i["severity"], 0) + 1
-        by_category[i["category"]] = by_category.get(i["category"], 0) + 1
-    summary["by_category"] = by_category
+def fingerprint(issue: dict) -> str:
+    """Changes when the issue changes (its title carries the counts), so a stale 'looks fine' doesn't hide new problems."""
+    return hashlib.sha256(f"{issue['id']}|{issue['title']}".encode()).hexdigest()[:16]
+
+
+def apply_context(health: dict, extra: list[dict], reviewed: list[dict]) -> dict:
+    """
+    Add check issues and the user's 'looks fine' marks to a (cached) health report, then re-score.
+    Never mutates the input.
+    """
+    marks = {r.get("issue_id"): r for r in reviewed or []}
+    issues = []
+    for issue in [*health["issues"], *tag_stages([dict(i) for i in extra])]:
+        item = {**issue, "fingerprint": fingerprint(issue)}
+        mark = marks.get(issue["id"])
+        item["reviewed"] = bool(mark and mark.get("fingerprint") == item["fingerprint"])
+        item["changed_since_review"] = bool(mark and not item["reviewed"])
+        issues.append(item)
     order = {"critical": 0, "warning": 1, "info": 2}
     issues.sort(key=lambda i: (order[i["severity"]], i["category"], i["column"] or ""))
-    return {**health, "issues": issues, "deductions": deductions, "score": score, "grade": grade, "summary": summary}
+    metrics = health.get("metrics") or {}
+    rows = metrics.get("rows", 0)
+    cols = metrics.get("columns", 0)
+    return {**health, **score_issues(issues, rows, cols), "issues": issues}
+
+
+def merge_into_health(health: dict, extra: list[dict]) -> dict:  # kept for callers/tests
+    return apply_context(health, extra, [])
+
+
+class ReviewMark(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issue_id: str = Field(min_length=1, max_length=300)
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{16}$")
+    title: str = Field(default="", max_length=300)
+    note: str | None = Field(default=None, max_length=300)
+
+
+class ReviewPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reviewed: list[ReviewMark] = Field(max_length=MAX_REVIEWED)
 
 
 class ChecksService:
@@ -150,10 +174,13 @@ class ChecksService:
         self.analysis = analysis
 
     def _stored(self, user_id: UUID, dataset_id: UUID) -> list[dict]:
-        raw = self.analysis.repo.get_checks(user_id, dataset_id)
-        if raw is None:
+        return self._context(user_id, dataset_id)["checks"]
+
+    def _context(self, user_id: UUID, dataset_id: UUID) -> dict:
+        context = self.analysis.repo.get_context(user_id, dataset_id)
+        if context is None:
             raise NotFoundError("Dataset not found.", code="dataset_not_found")
-        return raw
+        return context
 
     def results(self, resolved: Resolved, checks: list[CheckDefinition]) -> list[dict]:
         if not checks:
@@ -180,7 +207,17 @@ class ChecksService:
         return self.view(user_id, dataset_id)
 
     def health_with_checks(self, user_id: UUID, resolved: Resolved, health: dict) -> dict:
-        checks = parse_checks(self._stored(user_id, resolved.dataset.id))
-        if not checks:
-            return health
-        return merge_into_health(health, check_issues(checks, self.results(resolved, checks)))
+        """Health with the user's saved checks and 'looks fine' marks applied (used by Health, Clean and the report)."""
+        context = self._context(user_id, resolved.dataset.id)
+        checks = parse_checks(context["checks"])
+        extra = check_issues(checks, self.results(resolved, checks)) if checks else []
+        return apply_context(health, extra, context["reviewed"])
+
+    def reviewed(self, user_id: UUID, dataset_id: UUID) -> dict:
+        return {"reviewed": self._context(user_id, dataset_id)["reviewed"]}
+
+    def save_reviewed(self, user_id: UUID, dataset_id: UUID, payload: ReviewPayload) -> dict:
+        stored = self.analysis.repo.set_reviewed(user_id, dataset_id, [m.model_dump(mode="json") for m in payload.reviewed])
+        if stored is None:
+            raise NotFoundError("Dataset not found.", code="dataset_not_found")
+        return {"reviewed": stored}

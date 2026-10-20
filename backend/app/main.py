@@ -119,7 +119,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,  # we use bearer tokens, not cookies
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS", "PUT"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
         expose_headers=["Content-Disposition", "X-Request-ID"],
         max_age=600,

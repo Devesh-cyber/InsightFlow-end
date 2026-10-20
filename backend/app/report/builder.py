@@ -218,7 +218,7 @@ def _profile(detail: dict) -> dict:
 def _issue(issue: dict) -> dict:
     recommended = next((o["label"] for o in issue.get("options", []) if o.get("recommended")), None)
     return {"severity": issue["severity"], "title": issue["title"], "message": issue["message"],
-            "column": issue.get("column"), "recommended": recommended}
+            "column": issue.get("column"), "recommended": recommended, "stage": issue.get("stage", "primary")}
 
 
 def _comparison(before_o: dict | None, before_h: dict | None, now_o: dict, now_h: dict) -> list[dict]:
@@ -287,14 +287,22 @@ def _findings(meta: dict, now_o: dict, now_h: dict, before_o: dict | None, befor
         completeness += (" That is more empty cells than before, because cleaning turned invalid entries "
                          "(such as '?' or '-') into honest gaps rather than keeping them as fake values.")
     found.append(completeness)
-    s = now_h["summary"]
-    total = s["critical"] + s["warning"] + s["info"]
-    if total:
-        names = {"critical": "critical", "warning": "warning(s)", "info": "minor"}
-        parts = [f"{s[k]} {names[k]}" for k in ("critical", "warning", "info") if s[k]]
-        found.append(f"{total} issue(s) are still open: " + ", ".join(parts) + ".")
+    stages = now_h.get("stages")
+    if stages:
+        p, sec = stages["primary"], stages["secondary"]
+        if p["open"]:
+            found.append(f"Primary cleaning: {p['open']} issue(s) still open" + (f", {p['reviewed']} reviewed and kept as they are" if p["reviewed"] else "") + ".")
+        else:
+            found.append("Primary cleaning is complete" + (f" ({p['reviewed']} item(s) reviewed and kept as they are)" if p["reviewed"] else "") + ".")
+        if sec["open"]:
+            found.append(f"Secondary review: {sec['open']} item(s) to look at while exploring (outliers, skew). They don't lower the score.")
     else:
-        found.append("No open data-quality issues were detected.")
+        s = now_h["summary"]
+        total = s["critical"] + s["warning"] + s["info"]
+        found.append(f"{total} issue(s) are still open." if total else "No open data-quality issues were detected.")
+    dropped = sorted({c for st in cleaning if st["operation"].get("type") == "drop_columns" for c in (st["operation"].get("params") or {}).get("columns") or []})
+    if dropped:
+        found.append(f"Columns removed during cleaning: {', '.join(dropped)}. Issues in those columns no longer appear.")
     strong = [p for p in pairs if p.get("r") is not None and abs(p["r"]) >= 0.4]
     if strong:
         p = strong[0]
@@ -350,7 +358,9 @@ def build_report(
     before_h = before["health"] if before else None
     pairs = correlations.get("top_pairs") or []
 
-    issues = health.get("issues") or []
+    all_issues = health.get("issues") or []
+    issues = [i for i in all_issues if not i.get("reviewed")]
+    reviewed = [i for i in all_issues if i.get("reviewed")]
     pruned_note = None
     if steps and steps[0]["version"] > 1:
         pruned_note = (f"Only the most recent {keep_versions or len(steps)} versions are kept, so the log starts at "
@@ -382,6 +392,8 @@ def build_report(
             "deductions": [{"reason": d["reason"], "points": fmt_num(d["points"])} for d in health.get("deductions", [])],
             "issues": [_issue(i) for i in issues[:MAX_ISSUES]],
             "issues_omitted": max(0, len(issues) - MAX_ISSUES),
+            "reviewed": [{"title": i["title"], "column": i.get("column"), "stage": i.get("stage", "primary")} for i in reviewed],
+            "stages": health.get("stages"),
             "notes": health.get("notes", []),
         },
         "cleaning": {

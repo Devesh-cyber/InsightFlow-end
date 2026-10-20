@@ -187,3 +187,13 @@ def test_checks_roundtrip_and_ownership(repo, user):
     assert repo.get_checks(stranger, created.id) is None
     assert repo.set_checks(stranger, created.id, []) is None
     assert repo.get_checks(user, created.id) == saved
+
+
+def test_context_and_reviewed_roundtrip(repo, user):
+    created = repo.create_dataset(new_dataset(user), new_version(), max_datasets=5)
+    assert repo.get_context(user, created.id) == {"checks": [], "reviewed": []}
+    marks = [{"issue_id": "outliers:x", "fingerprint": "a" * 16, "title": "t", "note": None}]
+    assert repo.set_reviewed(user, created.id, marks) == marks
+    assert repo.get_context(user, created.id)["reviewed"] == marks
+    assert repo.get_context(uuid.uuid4(), created.id) is None
+    assert repo.set_reviewed(uuid.uuid4(), created.id, []) is None

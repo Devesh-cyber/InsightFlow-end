@@ -108,6 +108,31 @@ export interface Issue {
   options: IssueOption[];
   /** Which rows the issue is about (null = the whole column). */
   match?: RowMatch | null;
+  /** primary = fix while cleaning; secondary = review while exploring (outliers, skew…). */
+  stage?: Stage;
+  fingerprint?: string;
+  /** The user marked it "Looks fine, keep it". */
+  reviewed?: boolean;
+  /** Marked fine earlier, but the issue has changed since. */
+  changed_since_review?: boolean;
+}
+
+export type Stage = "primary" | "secondary";
+
+export interface StageSummary {
+  open: number;
+  reviewed: number;
+  critical: number;
+  warning: number;
+  info: number;
+  note: string;
+}
+
+export interface ReviewMark {
+  issue_id: string;
+  fingerprint: string;
+  title?: string;
+  note?: string | null;
 }
 
 export interface Health {
@@ -118,6 +143,7 @@ export interface Health {
   summary: { critical: number; warning: number; info: number; by_category: Record<string, number> };
   issues: Issue[];
   notes: string[];
+  stages?: Record<Stage, StageSummary>;
 }
 
 export interface ColumnProfile {

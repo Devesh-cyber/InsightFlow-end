@@ -42,7 +42,9 @@ export default function Overview() {
 
   const d = ds.data, o = overview.data;
   const ingest = d.ingest_report;
-  const issues = health.data?.issues ?? [];
+  // the start page only shows primary cleaning; secondary items wait for the Explore stage
+  const issues = (health.data?.issues ?? []).filter((i) => (i.stage ?? "primary") === "primary" && !i.reviewed);
+  const secondaryOpen = health.data?.stages?.secondary.open ?? 0;
   const top = [...issues].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : a.severity === "warning" && b.severity === "info" ? -1 : 1)).slice(0, 3);
   const nullPct = Object.fromEntries((columns.data?.columns ?? []).map((c) => [c.name, c]));
 
@@ -103,14 +105,16 @@ export default function Overview() {
 
         <section aria-label="Needs attention" style={{ flex: "2 1 300px", minWidth: 0 }}>
           <h2 style={{ marginBottom: 10 }}>
-            Needs attention {issues.length > 0 && <span className="badge warn" style={{ marginLeft: 6 }}>{issues.length}</span>}
+            Primary cleaning {issues.length > 0 && <span className="badge warn" style={{ marginLeft: 6 }}>{issues.length}</span>}
           </h2>
           {health.isPending ? <div className="skeleton" style={{ height: 200 }} /> : issues.length === 0 ? (
-            <Note tone="accent">No quality issues found. Explore the columns next.</Note>
+            <Note tone="accent" title="Primary cleaning done ✓">
+              Explore the columns and charts next.{secondaryOpen > 0 && <> {secondaryOpen} item(s) (outliers, skew) are waiting in <Link to={`/d/${id}/clean`}>Explore & review</Link>.</>}
+            </Note>
           ) : (
             <div className="stack" style={{ "--gap": "10px" } as React.CSSProperties}>
               {top.map((i) => <IssueCard key={i.id} issue={i} compact />)}
-              {issues.length > 3 && <Link to={`/d/${id}/health`} className="link-btn">See all {issues.length} issues →</Link>}
+              {issues.length > 3 && <Link to={`/d/${id}/clean`} className="link-btn">See all {issues.length} primary issues →</Link>}
             </div>
           )}
         </section>

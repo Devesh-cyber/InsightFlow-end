@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_checks_service, get_job_limiter
 from app.core.auth import AuthUser, get_current_user
 from app.core.jobs import JobLimiter
-from app.services.checks import ChecksPayload, ChecksService
+from app.services.checks import ChecksPayload, ChecksService, ReviewPayload
 
 router = APIRouter(prefix="/v1/datasets/{dataset_id}", tags=["checks"])
 
@@ -36,3 +36,22 @@ async def save_checks(
     jobs: JobLimiter = Depends(get_job_limiter),
 ) -> dict[str, Any]:
     return await jobs.run(svc.save, user.id, dataset_id, body)
+
+
+# "Looks fine, keep it": issues the user reviewed and decided not to change.
+@router.get("/reviewed")
+async def list_reviewed(
+    dataset_id: UUID,
+    user: AuthUser = Depends(get_current_user), svc: ChecksService = Depends(get_checks_service),
+    jobs: JobLimiter = Depends(get_job_limiter),
+) -> dict[str, Any]:
+    return await jobs.run(svc.reviewed, user.id, dataset_id)
+
+
+@router.put("/reviewed")
+async def save_reviewed(
+    dataset_id: UUID, body: ReviewPayload,
+    user: AuthUser = Depends(get_current_user), svc: ChecksService = Depends(get_checks_service),
+    jobs: JobLimiter = Depends(get_job_limiter),
+) -> dict[str, Any]:
+    return await jobs.run(svc.save_reviewed, user.id, dataset_id, body)

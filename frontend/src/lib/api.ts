@@ -3,7 +3,7 @@ import { config } from "./config";
 import { accessToken, supabase } from "./supabase";
 import type {
   ChartData, ChartOptions, CheckDef, ChecksView, ColumnDetail, ColumnProfile, Correlations, DatasetDetail, DatasetSummary, Health, Issue, MatchingRows, Me,
-  Operation, Overview, Preview, Relationship, RowMatch, RowsPage, Versions,
+  Operation, Overview, Preview, Relationship, ReviewMark, RowMatch, RowsPage, Versions,
 } from "./types";
 
 export class ApiError extends Error {
@@ -146,6 +146,8 @@ export const api = {
     request<{ dataset: DatasetDetail; applied: { description: string; effect: Preview["effect"]; warnings: string[] } }>(
       "POST", `${ds(id)}/apply`, { body: { ...op, expected_version } }),
   versions: (id: string) => request<Versions>("GET", `${ds(id)}/versions`),
+  reviewed: (id: string) => request<{ reviewed: ReviewMark[] }>("GET", `${ds(id)}/reviewed`),
+  saveReviewed: (id: string, reviewed: ReviewMark[]) => request<{ reviewed: ReviewMark[] }>("PUT", `${ds(id)}/reviewed`, { body: { reviewed } }),
   checks: (id: string, version?: number) => request<ChecksView>("GET", `${ds(id)}/checks`, { query: { version } }),
   saveChecks: (id: string, checks: CheckDef[]) => request<ChecksView>("PUT", `${ds(id)}/checks`, { body: { checks } }),
   revert: (id: string, to_version: number, expected_version: number) =>

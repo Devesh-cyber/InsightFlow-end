@@ -228,17 +228,34 @@ dl.glossary dd { margin: 1mm 0 0; color: var(--text); }
     </div>
     {% endif %}
 
-    <h3 style="margin-bottom:3mm">Open issues</h3>
-    {% for i in r.quality.issues %}
+    {% set primary = r.quality.issues | selectattr("stage", "equalto", "primary") | list %}
+    {% set secondary = r.quality.issues | selectattr("stage", "equalto", "secondary") | list %}
+    <h3 style="margin-bottom:3mm">Primary cleaning: open issues</h3>
+    {% for i in primary %}
     <div class="issue">
       <div class="issue-head"><span class="sev {{ i.severity }}">{{ i.severity }}</span><span class="issue-title">{{ i.title }}</span></div>
       <div class="small muted" style="margin-top:1mm">{{ i.message }}</div>
       {% if i.recommended %}<div class="rec">Suggested fix: {{ i.recommended }}</div>{% endif %}
     </div>
     {% else %}
-    <p class="note neutral">No open issues were detected in this version.</p>
+    <p class="note neutral">Primary cleaning is complete: no open issues.</p>
     {% endfor %}
+    {% if secondary %}
+    <h3 style="margin:5mm 0 3mm">Secondary review (while exploring)</h3>
+    <p class="small muted">Outliers, skew and similar observations. Often genuine values; they don't lower the score.</p>
+    {% for i in secondary %}
+    <div class="issue">
+      <div class="issue-head"><span class="sev info">note</span><span class="issue-title">{{ i.title }}</span></div>
+      <div class="small muted" style="margin-top:1mm">{{ i.message }}</div>
+    </div>
+    {% endfor %}
+    {% endif %}
     {% if r.quality.issues_omitted %}<p class="small muted">+ {{ r.quality.issues_omitted }} more issue(s) not listed.</p>{% endif %}
+    {% if r.quality.reviewed %}
+    <h3 style="margin:5mm 0 3mm">Reviewed and kept as they are</h3>
+    <p class="small muted">Items the analyst checked and decided were correct, so the data was not changed.</p>
+    <ul class="small">{% for i in r.quality.reviewed %}<li>{{ i.title }}</li>{% endfor %}</ul>
+    {% endif %}
     {% for n in r.quality.notes %}<p class="small muted">{{ n }}</p>{% endfor %}
   </section>
 

@@ -4,7 +4,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../lib/api";
-import type { CheckDef, DatasetDetail } from "../lib/types";
+import type { CheckDef, DatasetDetail, Issue } from "../lib/types";
 
 export function useDatasetId(): string {
   const { id } = useParams();
@@ -53,6 +53,23 @@ export const useChartData = (q: { type: string; x: string; y?: string; agg?: str
 export const useRecommendations = () => useVersioned("recs", [], (id) => api.recommendations(id));
 export const useVersions = () => useVersioned("versions", [], (id) => api.versions(id));
 export const useChecks = () => useVersioned("checks", [], (id, v) => api.checks(id, v));
+
+/** "Looks fine, keep it": close an issue without changing the data (and undo that). */
+export function useReview() {
+  const id = useDatasetId();
+  const qc = useQueryClient();
+  const refresh = () => qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] === "ds" && q.queryKey[1] === id && ["health", "recs"].includes(String(q.queryKey[3])),
+  });
+  return useMutation({
+    mutationFn: async ({ issue, keep }: { issue: Issue; keep: boolean }) => {
+      const current = (await api.reviewed(id)).reviewed.filter((m) => m.issue_id !== issue.id);
+      const next = keep ? [...current, { issue_id: issue.id, fingerprint: issue.fingerprint ?? "", title: issue.title }] : current;
+      return api.saveReviewed(id, next.slice(-300));
+    },
+    onSuccess: refresh,
+  });
+}
 
 /** Saving checks doesn't create a version, so drop the cached health / issues / checks of every version. */
 export function useSaveChecks() {

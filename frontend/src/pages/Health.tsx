@@ -1,32 +1,36 @@
 import { useState } from "react";
-import { IssueCard } from "../components/IssueCard";
-import { ErrorState, Loading, Note, PageHead } from "../components/ui";
+import { StageIssues, StageStrip, defaultStage, type StageTab } from "../components/Stages";
+import { ErrorState, Loading, PageHead } from "../components/ui";
 import { useHealth } from "../hooks/data";
 import { gradeLabel, num } from "../lib/format";
-import type { Severity } from "../lib/types";
 
 const CATEGORY: Record<string, string> = {
   missing_values: "Missing values", type_mismatch: "Type fixes", duplicates: "Duplicates", outliers: "Outliers",
-  whitespace: "Whitespace", empty_column: "Empty columns", constant_column: "Constant columns",
+  whitespace: "Whitespace", empty_column: "Empty columns", constant_column: "Constant columns", skewed: "Skewed",
+  duplicate_id: "Repeated IDs", invalid_values: "Values that look wrong", broken_relationship: "Columns that don't add up",
+  inconsistent_spelling: "Spellings", check_failed: "Your checks", check_error: "Checks that can't run",
 };
 
 export default function Health() {
   const health = useHealth();
-  const [filter, setFilter] = useState<Severity | "all">("all");
+  const [stage, setStage] = useState<StageTab | null>(null);
   if (health.isPending) return <Loading />;
   if (health.isError) return <ErrorState error={health.error} retry={() => health.refetch()} />;
   const h = health.data;
   const lost = Math.round((100 - h.score) * 10) / 10;
-  const shown = filter === "all" ? h.issues : h.issues.filter((i) => i.severity === filter);
+  const active = stage ?? defaultStage(h);
 
   return (
     <>
-      <PageHead title="Health" sub="What's wrong with the data, and what each fix would change. Nothing is applied until you preview it." />
+      <PageHead title="Health" sub="Clean in order: primary fixes first, then review outliers and skew while exploring. Nothing changes until you preview and apply." />
 
       <section aria-label="Score" className="row" style={{ alignItems: "stretch", gap: 12 }}>
         <div className={`tile ${h.score >= 80 ? "accent" : "warn"}`} style={{ flex: "1 1 220px", display: "flex", alignItems: "baseline", gap: 12 }}>
           <span className="t-value" style={{ fontSize: 40, lineHeight: 1 }}>{num(h.score)}</span>
-          <span className="t-label" style={{ fontSize: 14, fontWeight: 600 }}>{gradeLabel[h.grade]}</span>
+          <span className="stack" style={{ "--gap": "2px" } as React.CSSProperties}>
+            <span className="t-label" style={{ fontSize: 14, fontWeight: 600 }}>{gradeLabel[h.grade]}</span>
+            <span className="xs muted">primary cleaning score</span>
+          </span>
         </div>
         <div className="tile" style={{ flex: "2 1 340px" }}>
           <div className="t-label" style={{ marginBottom: 8 }}>{lost > 0 ? `Where the ${num(lost)} points went` : "No points lost"}</div>
@@ -38,36 +42,22 @@ export default function Health() {
           </div>
         </div>
         <div className="tile" style={{ flex: "1 1 200px" }}>
-          <div className="t-label" style={{ marginBottom: 8 }}>Issues</div>
+          <div className="t-label" style={{ marginBottom: 8 }}>Open</div>
           <div className="stack" style={{ "--gap": "4px" } as React.CSSProperties}>
-            <div className="spread"><span>Critical</span><span className="mono">{h.summary.critical}</span></div>
-            <div className={`spread ${h.summary.warning ? "warn-text" : ""}`}><span>Warnings</span><span className="mono">{h.summary.warning}</span></div>
-            <div className="spread"><span>Info</span><span className="mono">{h.summary.info}</span></div>
+            <div className={`spread ${h.stages?.primary.open ? "warn-text" : ""}`}><span>Primary cleaning</span><span className="mono">{h.stages?.primary.open ?? 0}</span></div>
+            <div className="spread"><span>Explore & review</span><span className="mono">{h.stages?.secondary.open ?? 0}</span></div>
+            <div className="spread muted"><span>Kept as they are</span><span className="mono">{(h.stages?.primary.reviewed ?? 0) + (h.stages?.secondary.reviewed ?? 0)}</span></div>
           </div>
         </div>
       </section>
 
-      {h.issues.length === 0 ? (
-        <Note tone="accent" title="No issues found.">Every check passed for this version.</Note>
-      ) : (
-        <section aria-label="Issues" className="stack">
-          <div className="spread" style={{ alignItems: "center" }}>
-            <h2>{shown.length} issue{shown.length === 1 ? "" : "s"}</h2>
-            <div className="segmented" role="tablist" aria-label="Filter by severity">
-              {(["all", "critical", "warning", "info"] as const).map((s) => (
-                <button key={s} role="tab" aria-selected={filter === s} onClick={() => setFilter(s)}>
-                  {s === "all" ? "All" : s[0].toUpperCase() + s.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-          {shown.map((i) => <IssueCard key={i.id} issue={i} />)}
-          {shown.length === 0 && <p className="muted small">No {filter} issues.</p>}
-          <p className="xs muted">
-            {Object.entries(h.summary.by_category).map(([k, v]) => `${CATEGORY[k] ?? k}: ${v}`).join(" · ")}
-          </p>
-        </section>
-      )}
+      <section aria-label="Issues" className="stack">
+        <StageStrip health={h} active={active} onSelect={setStage} />
+        <StageIssues health={h} stage={active} onStage={setStage} />
+        <p className="xs muted">
+          {Object.entries(h.summary.by_category).map(([k, v]) => `${CATEGORY[k] ?? k}: ${v}`).join(" · ")}
+        </p>
+      </section>
       {h.notes.map((n) => <p key={n} className="xs muted">{n}</p>)}
     </>
   );

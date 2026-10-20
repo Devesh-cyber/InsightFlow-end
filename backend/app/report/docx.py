@@ -192,12 +192,16 @@ def render_docx(r: dict) -> bytes:
         doc.add_paragraph("No open issues were detected in this version.")
     for issue in q["issues"]:
         p = doc.add_paragraph(style="List Bullet")
-        _run(p, f"[{issue['severity']}] ", bold=True, color=WARN if issue["severity"] != "info" else MUTED)
+        _run(p, f"[{'note' if issue.get('stage') == 'secondary' else issue['severity']}] ", bold=True, color=WARN if issue["severity"] != "info" else MUTED)
         _run(p, issue["title"], bold=True)
         p = doc.add_paragraph()
         _run(p, issue["message"], color=MUTED, size=9.5)
         if issue.get("recommended"):
             _run(p, f"  Suggested fix: {issue['recommended']}", color=ACCENT, size=9.5)
+    if q.get("reviewed"):
+        doc.add_heading("Reviewed and kept as they are", level=2)
+        for item in q["reviewed"]:
+            doc.add_paragraph(item["title"], style="List Bullet")
     for note in q["notes"]:
         p = doc.add_paragraph()
         _run(p, note, color=MUTED, size=9)

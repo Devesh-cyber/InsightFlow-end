@@ -80,6 +80,9 @@ Unsupported file → 415 `unsupported_file_type`. Unreadable/empty → 422.
 
 **Issue** (health + recommendations):
 `{id, category, severity (critical|warning|info), column, title, message, evidence, options[{label, operation{type, params}, recommended, note}], match}`.
+`stage`: `primary` (fix while cleaning) or `secondary` (outliers, skew, constant columns: review while exploring; never lowers the score).
+`fingerprint`, `reviewed` (user marked "Looks fine, keep it"), `changed_since_review` are added by `/health`, `/recommendations` and the report.
+Health also returns `stages: {primary|secondary: {open, reviewed, critical, warning, info, note}}`; the score counts open primary issues only.
 `match` says which rows the issue is about: `{conditions, combine}`, `{duplicate_rows: true}`, or `null` (whole-column issue).
 Send it to `POST /v1/datasets/{id}/matching-rows` (body = `match` + optional `offset`, `limit` ≤100, `version`) →
 `{version, total, rows_in_version, columns[], highlight[], offset, rows[{row, values[]}]}`. Read-only; also works for a rule's or check's conditions.
@@ -135,8 +138,18 @@ A check's conditions describe a **bad** row. `result = {status: passing|failing|
 Failing checks appear in `/health`, `/recommendations` and the report as `check_failed` issues (−5 each, max −30);
 a check whose column no longer exists shows as `check_error` (info). Needs migration `0002_checks.sql`.
 
+### Looks fine, keep it
+
+| Method | Path | Body | Returns |
+|---|---|---|---|
+| GET | `/v1/datasets/{id}/reviewed` | | `{reviewed[{issue_id, fingerprint, title, note}]}` |
+| PUT | `/v1/datasets/{id}/reviewed` | `{"reviewed": [...]}` (replaces the list, ≤300) | same |
+
+A mark only applies while the issue's `fingerprint` matches; if the issue changes (other rows or counts) it reopens with
+`changed_since_review: true`. Needs migration `0003_reviewed.sql`.
+
 **Issue categories**: `missing_values duplicates empty_column constant_column convert_to_number convert_to_date outliers`
-plus validity checks `duplicate_id invalid_values broken_relationship inconsistent_spelling` and `check_failed check_error`.
+plus validity checks `duplicate_id invalid_values broken_relationship inconsistent_spelling`, `check_failed check_error`, and `skewed` (secondary).
 
 ## Export
 

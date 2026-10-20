@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useDatasetId } from "../hooks/data";
+import { useDatasetId, useReview } from "../hooks/data";
 import type { Issue, Operation } from "../lib/types";
 import { ShowRows } from "./MatchingRowsTable";
+import { errorText, useToast } from "./Toast";
 import { Sev } from "./ui";
 
 export function usePreviewOperation() {
@@ -36,13 +38,42 @@ export function IssueCard({ issue, compact = false }: { issue: Issue; compact?: 
     );
   }
 
+  return <FullIssue issue={issue} />;
+}
+
+function FullIssue({ issue }: { issue: Issue }) {
+  const preview = usePreviewOperation();
+  const review = useReview();
+  const { notify } = useToast();
+  const secondary = issue.stage === "secondary";
+  const [showFixes, setShowFixes] = useState(!secondary);
+  const keep = (yes: boolean) => review.mutate({ issue, keep: yes }, {
+    onSuccess: () => notify(yes ? `Kept as is: ${issue.title.replace(/\.$/, "")}. The data wasn't changed.` : "Moved back to open issues."),
+    onError: (e) => notify(errorText(e)),
+  });
+
+  if (issue.reviewed) {
+    return (
+      <div className="issue kept-issue">
+        <div className="issue-head">
+          <span className="chip" style={{ color: "var(--accent-strong)" }}>kept ✓</span>
+          <span className="small">{issue.title.replace(/\.$/, "")}</span>
+          <button className="link-btn" style={{ marginLeft: "auto" }} disabled={review.isPending} onClick={() => keep(false)}>Undo</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="issue">
       <div className="issue-head">
-        <Sev severity={issue.severity} />
+        {secondary ? <span className="sev info">note</span> : <Sev severity={issue.severity} />}
         <span className="strong">{issue.title.replace(/\.$/, "")}</span>
         {issue.column && <span className="chip">{issue.column}</span>}
       </div>
+      {issue.changed_since_review && (
+        <p className="xs warn-text" style={{ margin: 0 }}>You marked this as fine earlier, but it has changed since (different rows or counts).</p>
+      )}
       <p className="small muted">{issue.message}</p>
       {issue.match && (
         <ShowRows match={issue.match}
@@ -50,7 +81,7 @@ export function IssueCard({ issue, compact = false }: { issue: Issue; compact?: 
             ? "Every value can be converted; this is about the column's type, not specific rows."
             : "No rows match any more in this version."} />
       )}
-      {issue.options.length > 0 && (
+      {issue.options.length > 0 && showFixes && (
         <div className="options">
           {issue.options.map((o) => (
             <button key={o.label} className={`option ${o.recommended ? "rec" : ""}`} title={o.note ?? undefined}
@@ -61,6 +92,15 @@ export function IssueCard({ issue, compact = false }: { issue: Issue; compact?: 
           ))}
         </div>
       )}
+      <div className="row" style={{ gap: 14 }}>
+        {issue.options.length > 0 && !showFixes && (
+          <button className="link-btn" onClick={() => setShowFixes(true)}>I checked: these look wrong · show fixes</button>
+        )}
+        <button className="link-btn keep-btn" disabled={review.isPending} onClick={() => keep(true)}
+          title="Close this issue without changing the data">
+          {secondary ? "These are real, keep them" : "Looks fine, keep it"}
+        </button>
+      </div>
     </div>
   );
 }

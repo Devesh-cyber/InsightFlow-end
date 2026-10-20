@@ -1,8 +1,9 @@
+import { IssueCard } from "../components/IssueCard";
 import { useSearchParams } from "react-router-dom";
 import { BarList } from "../components/charts/BarList";
 import { ColumnChart } from "../components/charts/ColumnChart";
 import { ErrorState, Loading, Note, PageHead, Skeleton, Tile, TypeChip } from "../components/ui";
-import { useColumnDetail, useColumns } from "../hooks/data";
+import { useColumnDetail, useColumns, useHealth } from "../hooks/data";
 import { cell, num, pct, roleLabel } from "../lib/format";
 import type { ColumnDetail } from "../lib/types";
 
@@ -113,6 +114,10 @@ export default function Columns() {
   const [params, setParams] = useSearchParams();
   const selected = params.get("name") ?? columns.data?.columns[0]?.name ?? null;
   const detail = useColumnDetail(selected);
+  const health = useHealth();
+  // Explore stage: secondary items (outliers, skew) for this column show up right next to its chart
+  const notes = (health.data?.issues ?? []).filter((i) => i.stage === "secondary" && !i.reviewed && i.column === selected);
+  const primaryLeft = health.data?.stages?.primary.open ?? 0;
 
   if (columns.isPending) return <Loading />;
   if (columns.isError) return <ErrorState error={columns.error} retry={() => columns.refetch()} />;
@@ -137,6 +142,13 @@ export default function Columns() {
         </nav>
         <div style={{ flex: "1 1 520px", minWidth: 0 }}>
           {detail.isPending ? <Skeleton height={420} /> : detail.isError ? <ErrorState error={detail.error} retry={() => detail.refetch()} /> : <Detail d={detail.data} />}
+          {notes.length > 0 && (
+            <section className="stack" style={{ marginTop: 20 }} aria-label="Explore and review">
+              <h2>To review in '{selected}'</h2>
+              {primaryLeft > 0 && <p className="xs muted" style={{ margin: 0 }}>Tip: finish primary cleaning first ({primaryLeft} left); it can change these.</p>}
+              {notes.map((i) => <IssueCard key={i.id} issue={i} />)}
+            </section>
+          )}
         </div>
       </div>
     </>
