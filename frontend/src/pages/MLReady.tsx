@@ -1,14 +1,15 @@
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { FormulaBuilder } from "../components/RuleBuilder";
+import { ConditionsEditor, FormulaBuilder, conditionsProblem } from "../components/RuleBuilder";
 import { errorText, useToast } from "../components/Toast";
 import { ErrorState, Loading, Note, PageHead, Skeleton, TypeChip } from "../components/ui";
 import { useDataset, useDatasetId } from "../hooks/data";
 import { api } from "../lib/api";
 import { cell, num } from "../lib/format";
 import { DATE_PARTS, STEP_HELP, STEP_LABEL, after, defaultStep, describe, kindOf, stepsFor, type Kind } from "../lib/mlsteps";
-import type { ColumnInfo, MLColumnPlan, MLPlan, MLPreview, MLRole, MLStats, MLStep, MLSuggestion } from "../lib/types";
+import { emptyCondition, fromCondition, toCondition, type DraftCondition } from "../lib/rules";
+import type { ColumnInfo, FormulaTerm, MLColumnPlan, MLFeature, MLPlan, MLPreview, MLRole, MLStats, MLStep, MLSuggestion } from "../lib/types";
 
 const EMPTY: MLPlan = { columns: {}, features: [], split: { enabled: false, test_size: 0.2, seed: 42, stratify: true } };
 const NONE: MLColumnPlan = { role: "use", steps: [] };
@@ -230,6 +231,115 @@ function PreviewPanel({ preview, error, loading }: { preview?: MLPreview; error:
   );
 }
 
+function featureDtype(f: MLFeature): string {
+  if (f.kind !== "condition") return "float";
+  return Number.isInteger(f.then_value ?? 1) && Number.isInteger(f.else_value ?? 0) ? "integer" : "float";
+}
+
+/** Columns a feature refers to (to warn when an earlier feature was renamed or removed). */
+function featureInputs(f: MLFeature): string[] {
+  const fromFormula = (terms?: FormulaTerm[] | null) =>
+    (terms ?? []).flatMap((t) => (typeof t === "object" && "column" in t && t.column ? [t.column] : []));
+  if (f.kind === "condition") return [...(f.conditions ?? []).map((c) => c.column), ...(f.conditions ?? []).flatMap((c) => fromFormula(c.formula))];
+  return fromFormula(f.formula);
+}
+
+const asColumn = (name: string, dtype: string) => ({ name, dtype, null_count: 0, converted_from_text: false, missing_markers: {} }) as unknown as ColumnInfo;
+
+/** One new feature: a formula, or "if … then … else …". It can use the dataset's columns and every earlier feature. */
+function FeatureCard({ index, feature, base, earlier, onChange, onRemove, onMove, isLast }: {
+  index: number; feature: MLFeature; base: ColumnInfo[]; earlier: MLFeature[];
+  onChange: (f: MLFeature) => void; onRemove: () => void; onMove: (d: number) => void; isLast: boolean;
+}) {
+  const n = index + 1;
+  const kind = feature.kind ?? "formula";
+  // what this feature may use: the cleaned columns plus features created before it
+  const available: ColumnInfo[] = [...base, ...earlier.map((f) => asColumn(f.name, featureDtype(f)))];
+  const [drafts, setDrafts] = useState<DraftCondition[]>(() =>
+    feature.conditions?.length ? feature.conditions.map(fromCondition) : [emptyCondition(available)]);
+  const [combine, setCombine] = useState<"and" | "or">(feature.combine ?? "and");
+  // when the saved conditions change from outside (feature moved, plan reloaded), show those instead of the old draft
+  const savedJson = JSON.stringify(feature.conditions ?? []);
+  const pushed = useRef(savedJson);
+  useEffect(() => {
+    if (savedJson === pushed.current) return;
+    pushed.current = savedJson;
+    if (feature.conditions?.length) setDrafts(feature.conditions.map(fromCondition));
+    setCombine(feature.combine ?? "and");
+  }, [savedJson]); // eslint-disable-line react-hooks/exhaustive-deps
+  const problem = kind === "condition" ? conditionsProblem(drafts, available) : null;
+  const missing = featureInputs(feature).filter((c) => !available.some((a) => a.name === c));
+
+  const pushConditions = (next: DraftCondition[], nextCombine = combine) => {
+    setDrafts(next);
+    setCombine(nextCombine);
+    if (!conditionsProblem(next, available) && next.length) {
+      const conditions = next.map((c) => toCondition(c, available));
+      pushed.current = JSON.stringify(conditions);
+      onChange({ ...feature, kind: "condition", conditions, combine: nextCombine });
+    }
+  };
+  const switchKind = (k: "formula" | "condition") => {
+    if (k === kind) return;
+    if (k === "formula") onChange({ name: feature.name, kind: "formula", formula: feature.formula?.length ? feature.formula : [{ column: base.find((c) => c.dtype === "integer" || c.dtype === "float")?.name ?? "" }] });
+    else {
+      const start = drafts.length ? drafts : [emptyCondition(available)];
+      setDrafts(start);
+      onChange({ name: feature.name, kind: "condition", conditions: conditionsProblem(start, available) ? [] : start.map((c) => toCondition(c, available)),
+        combine, then_value: feature.then_value ?? 1, else_value: feature.else_value ?? 0, empty_stays_empty: !!feature.empty_stays_empty });
+    }
+  };
+
+  return (
+    <div className="card stack" style={{ "--gap": "10px", padding: 12 } as React.CSSProperties}>
+      <div className="row" style={{ gap: 6 }}>
+        <input className="input" style={{ flex: 1 }} aria-label={`Feature ${n} name`} value={feature.name}
+          onChange={(e) => onChange({ ...feature, name: e.target.value })} />
+        <button type="button" className="btn ghost sm" aria-label={`Move feature ${n} up`} disabled={index === 0} onClick={() => onMove(-1)}>↑</button>
+        <button type="button" className="btn ghost sm" aria-label={`Move feature ${n} down`} disabled={isLast} onClick={() => onMove(1)}>↓</button>
+        <button type="button" className="btn ghost sm" aria-label={`Remove feature ${n}`} onClick={onRemove}>✕</button>
+      </div>
+      <div className="segmented" role="tablist" aria-label={`Feature ${n} type`}>
+        <button type="button" role="tab" aria-selected={kind === "formula"} onClick={() => switchKind("formula")}>Formula</button>
+        <button type="button" role="tab" aria-selected={kind === "condition"} onClick={() => switchKind("condition")}>If … then … else</button>
+      </div>
+
+      {kind === "formula" ? (
+        <>
+          <span className="xs muted">{feature.name || "feature"} =</span>
+          <FormulaBuilder label={`Feature ${n} formula`} terms={feature.formula ?? []} columns={available}
+            onChange={(formula) => onChange({ ...feature, kind: "formula", formula })} />
+        </>
+      ) : (
+        <>
+          <span className="xs strong">If</span>
+          <ConditionsEditor conditions={drafts} combine={combine} columns={available}
+            onChange={(next) => pushConditions(next)} onCombine={(c) => pushConditions(drafts, c)} />
+          <div className="row" style={{ gap: 8, alignItems: "flex-end" }}>
+            <label className="field" style={{ flex: "1 1 100px" }}>then
+              <input className="input" type="number" aria-label={`Feature ${n} then value`} value={feature.then_value ?? 1}
+                onChange={(e) => onChange({ ...feature, then_value: e.target.value === "" ? 1 : Number(e.target.value) })} />
+            </label>
+            <label className="field" style={{ flex: "1 1 100px" }}>else
+              <input className="input" type="number" aria-label={`Feature ${n} else value`} value={feature.else_value ?? 0}
+                onChange={(e) => onChange({ ...feature, else_value: e.target.value === "" ? 0 : Number(e.target.value) })} />
+            </label>
+          </div>
+          <label className="check small">
+            <input type="checkbox" checked={!!feature.empty_stays_empty} onChange={(e) => onChange({ ...feature, empty_stays_empty: e.target.checked })} />
+            Keep empty when a compared value is empty (otherwise those rows get the "else" value)
+          </label>
+          {problem && <span className="xs muted">{problem}</span>}
+        </>
+      )}
+      {earlier.length > 0 && <span className="xs muted">Can use: {earlier.map((f) => f.name).join(", ")} (features above).</span>}
+      {missing.length > 0 && (
+        <span className="xs warn-text">Uses {missing.map((m) => `'${m}'`).join(", ")}, which no longer exists (renamed, removed, or below this feature).</span>
+      )}
+    </div>
+  );
+}
+
 export default function MLReady() {
   const id = useDatasetId();
   const ds = useDataset(id);
@@ -279,7 +389,7 @@ export default function MLReady() {
 
   const columns: { name: string; dtype: string; feature?: boolean }[] = useMemo(() => [
     ...(ds.data?.columns ?? []).map((c) => ({ name: c.name, dtype: c.dtype })),
-    ...(plan?.features ?? []).map((f) => ({ name: f.name, dtype: "float", feature: true })),
+    ...(plan?.features ?? []).map((f) => ({ name: f.name, dtype: featureDtype(f), feature: true })),
   ], [ds.data, plan?.features]);
   const numeric: ColumnInfo[] = (ds.data?.columns ?? []).filter((c) => c.dtype === "integer" || c.dtype === "float");
 
@@ -405,21 +515,22 @@ export default function MLReady() {
           </div>
 
           <h2 style={{ marginTop: 12 }}>New features</h2>
-          <p className="xs muted" style={{ margin: 0 }}>Make a column from others, e.g. price_per_unit = total ÷ units. It then appears above, where you can add steps to it.</p>
+          <p className="xs muted" style={{ margin: 0 }}>Make a column from others: a formula (family_size = SibSp + Parch + 1) or an if/then/else flag (if family_size &gt; 0 then 1 else 0). Each feature can use the features above it, and appears in the column list where you can add steps.</p>
           {plan.features.map((f, i) => (
-            <div key={i} className="card stack" style={{ "--gap": "8px", padding: 12 } as React.CSSProperties}>
-              <div className="row" style={{ gap: 8 }}>
-                <input className="input" style={{ flex: 1 }} aria-label={`Feature ${i + 1} name`} value={f.name}
-                  onChange={(e) => setPlan({ ...plan, features: plan.features.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
-                <button type="button" className="btn ghost sm" aria-label={`Remove feature ${i + 1}`} onClick={() => setPlan({ ...plan, features: plan.features.filter((_, j) => j !== i) })}>✕</button>
-              </div>
-              <FormulaBuilder label={`Feature ${i + 1} formula`} terms={f.formula} columns={numeric}
-                onChange={(formula) => setPlan({ ...plan, features: plan.features.map((x, j) => (j === i ? { ...x, formula } : x)) })} />
-            </div>
+            <FeatureCard key={i} index={i} feature={f} base={ds.data?.columns ?? []} earlier={plan.features.slice(0, i)}
+              onChange={(next) => setPlan({ ...plan, features: plan.features.map((x, j) => (j === i ? next : x)) })}
+              onRemove={() => setPlan({ ...plan, features: plan.features.filter((_, j) => j !== i) })}
+              onMove={(d) => {
+                const list = [...plan.features];
+                const [moved] = list.splice(i, 1);
+                list.splice(i + d, 0, moved);
+                setPlan({ ...plan, features: list });
+              }}
+              isLast={i === plan.features.length - 1} />
           ))}
           <div>
             <button type="button" className="link-btn" disabled={numeric.length === 0}
-              onClick={() => setPlan({ ...plan, features: [...plan.features, { name: `feature_${plan.features.length + 1}`, formula: [{ column: numeric[0]?.name ?? "" }] }] })}>
+              onClick={() => setPlan({ ...plan, features: [...plan.features, { name: `feature_${plan.features.length + 1}`, kind: "formula", formula: [{ column: numeric[0]?.name ?? "" }] }] })}>
               + New feature
             </button>
           </div>

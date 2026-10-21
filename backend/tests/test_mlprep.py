@@ -197,3 +197,67 @@ def test_flag_column_survives_onehot_and_split_explains_no_stratify():
     p = MLPlan.model_validate({"columns": {"churn": {"role": "target"}}, "split": {"enabled": True}})
     _, how = split_mask(odd, p.split, "churn")
     assert how.startswith("random (not stratified") and "'maybe'" in how
+
+
+# ------------------------------------------------------------------ features: chaining + if/then/else
+def titanic():
+    return pl.DataFrame({
+        "SibSp": [1, 0, 0, 3, 0, 1], "Parch": [0, 0, 2, 1, 0, 1],
+        "Fare": [70.0, 8.0, 30.0, 50.0, None, 20.0], "Cabin": ["C85", None, "B2", None, None, "E1"],
+        "Age": [22.0, 38.0, None, 4.0, 35.0, 10.0],
+    })
+
+
+def test_a_feature_can_use_an_earlier_feature():
+    p = MLPlan.model_validate({"features": [
+        {"name": "family_size", "formula": [{"column": "SibSp"}, "+", {"column": "Parch"}, "+", {"number": 1}]},
+        {"name": "fare_per_person", "formula": [{"column": "Fare"}, "/", {"column": "family_size"}]},
+    ]})
+    out = run_plan(titanic(), p)["df"]
+    assert out["family_size"].to_list() == [2.0, 1.0, 3.0, 5.0, 1.0, 3.0]
+    assert out["fare_per_person"].to_list()[:4] == [35.0, 8.0, 10.0, 10.0] and out["fare_per_person"][4] is None
+
+
+def test_if_then_else_features_including_your_example():
+    p = MLPlan.model_validate({"features": [
+        {"name": "family_size", "formula": [{"column": "SibSp"}, "+", {"column": "Parch"}]},
+        {"name": "has_family", "kind": "condition", "conditions": [{"column": "family_size", "op": "gt", "value": 0}]},
+        {"name": "has_cabin", "kind": "condition", "conditions": [{"column": "Cabin", "op": "not_empty"}]},
+        {"name": "is_child", "kind": "condition", "conditions": [{"column": "Age", "op": "lt", "value": 13}]},
+        {"name": "child_kept_empty", "kind": "condition", "conditions": [{"column": "Age", "op": "lt", "value": 13}], "empty_stays_empty": True},
+        {"name": "score", "kind": "condition", "combine": "or", "then_value": 2.5, "else_value": -1,
+         "conditions": [{"column": "Fare", "op": "ge", "value": 50}, {"column": "Age", "op": "lt", "value": 5}]},
+    ]})
+    out = run_plan(titanic(), p)["df"]
+    assert out["has_family"].to_list() == [1, 0, 1, 1, 0, 1] and out["has_family"].dtype == pl.Int64
+    assert out["has_cabin"].to_list() == [1, 0, 1, 0, 0, 1]
+    assert out["is_child"].to_list() == [0, 0, 0, 1, 0, 1]          # empty Age -> else (0)
+    assert out["child_kept_empty"].to_list() == [0, 0, None, 1, 0, 1]  # empty Age stays empty when asked
+    assert out["score"].to_list() == [2.5, -1.0, -1.0, 2.5, -1.0, -1.0] and out["score"].dtype == pl.Float64
+
+
+def test_feature_order_and_missing_inputs_are_explained():
+    later = MLPlan.model_validate({"features": [
+        {"name": "b", "formula": [{"column": "a"}, "*", {"number": 2}]},
+        {"name": "a", "formula": [{"column": "SibSp"}]},
+    ]})
+    with pytest.raises(UnprocessableError, match="created after it"):
+        run_plan(titanic(), later)
+    gone = MLPlan.model_validate({"features": [{"name": "x", "kind": "condition", "conditions": [{"column": "nope", "op": "gt", "value": 0}]}]})
+    with pytest.raises(UnprocessableError, match="doesn't exist"):
+        run_plan(titanic(), gone)
+    with pytest.raises(Exception, match="needs at least one condition"):
+        MLPlan.model_validate({"features": [{"name": "y", "kind": "condition"}]})
+    with pytest.raises(Exception, match="needs a formula"):
+        MLPlan.model_validate({"features": [{"name": "z"}]})
+
+
+def test_condition_features_can_get_steps_and_go_to_the_split():
+    p = MLPlan.model_validate({
+        "features": [{"name": "family_size", "formula": [{"column": "SibSp"}, "+", {"column": "Parch"}]},
+                     {"name": "alone", "kind": "condition", "conditions": [{"column": "family_size", "op": "eq", "value": 0}]}],
+        "columns": {"family_size": {"steps": [{"kind": "scale", "method": "minmax"}]}, "Cabin": {"role": "drop"}},
+    })
+    r = run_plan(titanic(), p)
+    assert r["df"]["alone"].to_list() == [0, 1, 0, 0, 1, 0]
+    assert r["df"]["family_size"].max() == 1.0 and "Cabin" not in r["df"].columns

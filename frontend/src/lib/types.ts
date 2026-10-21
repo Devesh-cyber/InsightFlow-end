@@ -332,7 +332,16 @@ export type MLStep =
   | { kind: "to_number" };
 
 export interface MLColumnPlan { role: MLRole; steps: MLStep[] }
-export interface MLFeature { name: string; formula: FormulaTerm[] }
+export interface MLFeature {
+  name: string;
+  kind?: "formula" | "condition";
+  formula?: FormulaTerm[] | null;
+  conditions?: RuleCondition[];
+  combine?: "and" | "or";
+  then_value?: number;
+  else_value?: number;
+  empty_stays_empty?: boolean;
+}
 export interface MLPlan {
   columns: Record<string, MLColumnPlan>;
   features: MLFeature[];

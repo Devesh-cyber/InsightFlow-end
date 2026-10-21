@@ -70,7 +70,7 @@ export function formulaProblem(terms: FormulaTerm[]): string | null {
   if (terms.length === 0 || terms.length % 2 === 0) return "Finish the formula (value, operator, value…).";
   for (let i = 0; i < terms.length; i += 2) {
     const t = terms[i] as { column?: string; number?: number };
-    if (typeof t !== "object" || (("column" in t) ? !t.column : !Number.isFinite(t.number))) return "Every part of the formula needs a column or a number.";
+    if (typeof t !== "object" || (isNumberTerm(t) ? !Number.isFinite((t as { number: number }).number) : !(t as { column: string }).column)) return "Every part of the formula needs a column or a number.";
   }
   return null;
 }
@@ -200,4 +200,9 @@ export function toOperation(conditions: DraftCondition[], combine: "and" | "or",
 
 export function newCheckId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** A formula part is a number when it has no column. Saved plans come back with `column: null` / `number: null`, so check the value, not the key. */
+export function isNumberTerm(t: object): boolean {
+  return typeof (t as { column?: unknown }).column !== "string";
 }

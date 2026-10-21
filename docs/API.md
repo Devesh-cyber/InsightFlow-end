@@ -167,8 +167,14 @@ explore & review has open items (issues marked "looks fine" count as done); `GET
 | POST | `/v1/datasets/{id}/ml/preview` | plan (unsaved is fine) | `{version, shape_before, shape_after, split{how, train, test}?, target, columns[{name, source, before, after}], preview{columns, rows}, warnings, learned}` |
 | GET | `/v1/datasets/{id}/ml/export` | | saved plan → `<name>_vN_ml_ready.csv`, or `.zip` (`train.csv`, `test.csv`, `plan.json`, `README.txt`) when the split is on |
 
-**Plan**: `{columns: {name: {role: use|drop|target, steps: [...]}}, features: [{name, formula}], split: {enabled, test_size 0.05-0.5, seed, stratify}}`.
-At most one target (it becomes the last column; rows with an empty target are left out). Features are computed first (formula of numeric columns).
+**Plan**: `{columns: {name: {role: use|drop|target, steps: [...]}}, features: [feature], split: {enabled, test_size 0.05-0.5, seed, stratify}}`.
+At most one target (it becomes the last column; rows with an empty target are left out).
+**Features** are computed first, top to bottom, so a feature can use any column and any feature above it:
+`{name, kind: "formula", formula: [operand, op, operand, ...]}` or
+`{name, kind: "condition", conditions: [Condition], combine: and|or, then_value: 1, else_value: 0, empty_stays_empty: false}`
+(if/then/else; conditions use the same format as rules, e.g. `{column: "family_size", op: "gt", value: 0}`; the result is a
+whole-number column when both values are whole). Using a feature that is below, or a column that doesn't exist, returns 422
+naming the feature.
 **Steps** (in order, per column): `fill_missing{strategy mean|median|mode|constant, value, add_indicator}`,
 `clip{method percentile|iqr|values, lower, upper, factor}`, `transform{method log1p|log|log10|sqrt|square}`,
 `scale{method standard|minmax|robust}`, `encode{method onehot|frequency|ordinal, max_categories, drop_first, order}`,

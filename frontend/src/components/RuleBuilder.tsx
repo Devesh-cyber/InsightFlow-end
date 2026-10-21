@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ACTIONS, OP_TEXT, TRANSFORMS, actionProblem, conditionProblem, emptyCondition, isTextOp, opsFor, toCondition, toOperation, valueShape,
   type DraftAction, type DraftCondition, type RuleAction,
+  isNumberTerm,
 } from "../lib/rules";
 import type { ColumnInfo, FormulaOperand, FormulaTerm, Operation, RuleCondition } from "../lib/types";
 import { ShowRows } from "./MatchingRowsTable";
@@ -27,7 +28,7 @@ export function FormulaBuilder({ terms, columns, onChange, label }: {
               </select>
             );
           }
-          const isNumber = "number" in t;
+          const isNumber = isNumberTerm(t);
           return (
             <span key={i} className="row" style={{ gap: 4, flexWrap: "nowrap" }}>
               <select className="select" style={{ maxWidth: 170 }} aria-label={`Formula value ${i / 2 + 1}`}

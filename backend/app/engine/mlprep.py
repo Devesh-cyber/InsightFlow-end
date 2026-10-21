@@ -34,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from app.core.errors import UnprocessableError
 from app.engine.infer import dtype_label
 from app.engine.profile import column_role, is_numeric, is_temporal
-from app.engine.rules import CALC_DECIMALS, EMAIL_RE, FormulaTerm, RuleError, _check_formula, formula_expr
+from app.engine.rules import CALC_DECIMALS, EMAIL_RE, Condition, FormulaTerm, _check_formula, evaluate, formula_expr
 
 MAX_STEPS = 10
 MAX_FEATURES = 20
@@ -131,13 +131,16 @@ class ColumnPlan(_Strict):
 
 
 class Feature(_Strict):
+    """A new column: a formula (SibSp + Parch + 1) or an if/then/else flag (if family_size > 0 then 1 else 0).
+    Features are built in order, so a feature can use any feature listed before it."""
     name: str = Field(min_length=1, max_length=64)
-    formula: list[FormulaTerm]
-
-    @field_validator("formula")
-    @classmethod
-    def _formula(cls, terms):
-        return _check_formula(terms)
+    kind: Literal["formula", "condition"] = "formula"
+    formula: list[FormulaTerm] | None = None
+    conditions: list[Condition] = Field(default_factory=list, max_length=10)
+    combine: Literal["and", "or"] = "and"
+    then_value: float = 1
+    else_value: float = 0
+    empty_stays_empty: bool = False  # rows where a compared value is empty get an empty result instead of "else"
 
     @field_validator("name")
     @classmethod
@@ -146,6 +149,16 @@ class Feature(_Strict):
         if not v:
             raise ValueError("a feature needs a name")
         return v
+
+    @model_validator(mode="after")
+    def _shape(self):
+        if self.kind == "formula":
+            if not self.formula:
+                raise ValueError(f"feature '{self.name}' needs a formula")
+            _check_formula(self.formula)
+        elif not self.conditions:
+            raise ValueError(f"feature '{self.name}' needs at least one condition")
+        return self
 
 
 class Split(_Strict):
@@ -399,6 +412,33 @@ def _expands(step) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# new features
+# ---------------------------------------------------------------------------
+def _feature_inputs(feature: Feature) -> set[str]:
+    if feature.kind == "formula":
+        return {t.column for t in feature.formula or [] if not isinstance(t, str) and t.column}
+    used = {c.column for c in feature.conditions}
+    for c in feature.conditions:
+        used |= {t.column for t in c.formula or [] if not isinstance(t, str) and t.column}
+    return used
+
+
+def _feature_series(data: pl.DataFrame, feature: Feature) -> pl.Series:
+    if feature.kind == "formula":
+        return data.select(formula_expr(data, feature.formula).cast(pl.Float64).round(CALC_DECIMALS).alias(feature.name)).to_series()
+    mask = evaluate(data, feature.conditions, feature.combine)
+    whole = float(feature.then_value).is_integer() and float(feature.else_value).is_integer()
+    dtype = pl.Int64 if whole else pl.Float64
+    then_v = int(feature.then_value) if whole else float(feature.then_value)
+    else_v = int(feature.else_value) if whole else float(feature.else_value)
+    out = pl.select(pl.when(pl.lit(mask)).then(pl.lit(then_v, dtype=dtype)).otherwise(pl.lit(else_v, dtype=dtype)).alias(feature.name)).to_series()
+    if feature.empty_stays_empty:
+        empty = pl.select(pl.any_horizontal([pl.lit(data.get_column(c).is_null()) for c in sorted(_feature_inputs(feature))])).to_series()
+        out = pl.select(pl.when(pl.lit(empty)).then(None).otherwise(pl.lit(out)).alias(feature.name)).to_series()
+    return out
+
+
+# ---------------------------------------------------------------------------
 # split
 # ---------------------------------------------------------------------------
 def split_mask(df: pl.DataFrame, split: Split, target: str | None) -> tuple[pl.Series, str]:
@@ -440,13 +480,23 @@ def run_plan(df: pl.DataFrame, plan: MLPlan) -> dict:
     warnings: list[str] = []
     data = df
 
-    # 1. new features (formulas on the cleaned columns)
-    for feature in plan.features:
+    # 1. new features, in order: each one can use the cleaned columns and every feature before it
+    for position, feature in enumerate(plan.features):
         if feature.name in data.columns:
             raise MLPlanError(f"Feature '{feature.name}': a column with that name already exists.")
+        later = {f.name for f in plan.features[position + 1:]}
+        used = _feature_inputs(feature)
+        ahead = sorted(used & later)
+        if ahead:
+            raise MLPlanError(f"Feature '{feature.name}' uses {', '.join(repr(a) for a in ahead)}, which is created after it. "
+                              "Move it below that feature.")
+        missing = sorted(used - set(data.columns))
+        if missing:
+            raise MLPlanError(f"Feature '{feature.name}' uses {', '.join(repr(m) for m in missing)}, which doesn't exist "
+                              "(renamed or deleted?).")
         try:
-            data = data.with_columns(formula_expr(data, feature.formula).cast(pl.Float64).round(CALC_DECIMALS).alias(feature.name))
-        except RuleError as exc:
+            data = data.with_columns(_feature_series(data, feature))
+        except UnprocessableError as exc:
             raise MLPlanError(f"Feature '{feature.name}': {exc.message}") from exc
 
     for missing in [c for c in plan.columns if c not in data.columns]:
