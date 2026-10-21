@@ -50,7 +50,7 @@ function MobileBar({ onMenu }: { onMenu: () => void }) {
 
 function useCloseOnNavigate(setOpen: (v: boolean) => void) {
   const loc = useLocation();
-  useEffect(() => setOpen(false), [loc.pathname, setOpen]);
+  useEffect(() => {setOpen(false)}, [loc.pathname, setOpen]);
 }
 
 /** Pages outside a dataset (the datasets list). */

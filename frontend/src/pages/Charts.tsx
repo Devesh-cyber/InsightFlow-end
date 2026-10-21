@@ -71,7 +71,7 @@ export default function Charts() {
   const available = options.data?.charts ?? [];
   const chartType: ChartType | null = type && type !== "table" && available.some((c) => c.type === type) ? type : available[0]?.type ?? null;
 
-  useEffect(() => setType(null), [x, y]);
+  useEffect(() => {setType(null)}, [x, y]);
   const needsAgg = !!y && (chartType === "bar" || chartType === "line");
   const data = useChartData(chartType && x ? { type: chartType, x, y: y ?? undefined, agg: needsAgg ? agg : undefined } : null);
 

@@ -232,7 +232,7 @@ export default function Clean() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incoming?.operation]);
 
-  useEffect(() => window.scrollTo({ top: 0 }), [current]);
+  useEffect(() => {window.scrollTo({ top: 0 })}, [current]);
 
   const closePreview = () => {
     setCurrent(null);
