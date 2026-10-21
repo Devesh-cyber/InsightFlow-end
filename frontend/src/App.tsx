@@ -5,6 +5,7 @@ import { PasswordRecovery } from "./auth/PasswordRecovery";
 import { DatasetLayout, HomeLayout } from "./components/Layout";
 import { Loading } from "./components/ui";
 import Datasets from "./pages/Datasets";
+import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
 
@@ -23,9 +24,10 @@ export default function App() {
     <Suspense fallback={<Loading />}>
       <PasswordRecovery />
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/login" element={<Login />} />
         <Route element={<RequireAuth><HomeLayout /></RequireAuth>}>
-          <Route path="/" element={<Datasets />} />
+          <Route path="/app" element={<Datasets />} />
         </Route>
         <Route path="/d/:id" element={<RequireAuth><DatasetLayout /></RequireAuth>}>
           <Route index element={<Navigate to="overview" replace />} />

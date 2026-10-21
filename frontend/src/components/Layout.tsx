@@ -22,7 +22,7 @@ function Sidebar({ open, children }: { open: boolean; children: ReactNode }) {
   const me = useMe();
   return (
     <nav className={`sidebar ${open ? "open" : ""}`} aria-label="Main">
-      <Link to="/" className="brand"><Logo />InsightFlow</Link>
+      <Link to="/app" className="brand"><Logo />InsightFlow</Link>
       {children}
       <div className="sidebar-foot">
         {me.data && (
@@ -42,7 +42,7 @@ function Sidebar({ open, children }: { open: boolean; children: ReactNode }) {
 function MobileBar({ onMenu }: { onMenu: () => void }) {
   return (
     <div className="mobile-bar">
-      <Link to="/" className="brand" style={{ padding: 0 }}><Logo />InsightFlow</Link>
+      <Link to="/app" className="brand" style={{ padding: 0 }}><Logo />InsightFlow</Link>
       <button className="btn sm" onClick={onMenu} aria-label="Open menu">Menu</button>
     </div>
   );
@@ -62,7 +62,7 @@ export function HomeLayout() {
       <MobileBar onMenu={() => setOpen(!open)} />
       {open && <div className="scrim" onClick={() => setOpen(false)} aria-hidden="true" />}
       <Sidebar open={open}>
-        <NavLink to="/" end className="nav-link">Datasets</NavLink>
+        <NavLink to="/app" end className="nav-link">Datasets</NavLink>
       </Sidebar>
       <main className="main" id="main"><Outlet /></main>
     </div>
@@ -80,7 +80,7 @@ export function DatasetLayout() {
       <MobileBar onMenu={() => setOpen(!open)} />
       {open && <div className="scrim" onClick={() => setOpen(false)} aria-hidden="true" />}
       <Sidebar open={open}>
-        <Link to="/" className="ds-switch" title="All datasets">
+        <Link to="/app" className="ds-switch" title="All datasets">
           <span className="label">Dataset · switch</span>
           <span className="name">
             {ds.data?.name ?? "…"}{" "}

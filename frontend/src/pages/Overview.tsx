@@ -53,7 +53,7 @@ export default function Overview() {
       <PageHead
         title="Overview"
         sub={<>{d.source_filename}{d.sheet_name ? ` · sheet ${d.sheet_name}` : ""} · version {d.current_version}</>}
-        actions={<><SheetSwitch /><Link to="/" className="btn primary">Upload a file</Link></>}
+        actions={<><SheetSwitch /><Link to="/app" className="btn primary">Upload a file</Link></>}
       />
 
       <section aria-label="Summary" className="tiles">

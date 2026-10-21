@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { Logo, Note } from "../components/ui";
 import { supabase } from "../lib/supabase";
@@ -9,8 +9,9 @@ type Mode = "signin" | "signup" | "reset";
 export default function Login() {
   const { session } = useAuth();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? "/";
-  const [mode, setMode] = useState<Mode>("signin");
+  const from = (location.state as { from?: string } | null)?.from ?? "/app";
+  const [params] = useSearchParams();
+  const [mode, setMode] = useState<Mode>(params.get("mode") === "signup" ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +56,7 @@ export default function Login() {
   return (
     <div className="auth">
       <form className="auth-card" onSubmit={submit} noValidate>
-        <div className="brand" style={{ padding: 0 }}><Logo size={26} />InsightFlow</div>
+        <Link to="/" className="brand" style={{ padding: 0 }} title="Back to the InsightFlow home page"><Logo size={26} />InsightFlow</Link>
         <div>
           <h1 style={{ fontSize: 22 }}>{titles[mode]}</h1>
           <p className="muted small" style={{ marginTop: 4 }}>Understand your data before you change it.</p>
@@ -101,7 +102,7 @@ export default function Login() {
               <button type="button" className="link-btn" style={{ color: "var(--muted)" }} onClick={() => setMode("reset")}>Forgot password?</button>
             </>
           ) : (
-            <button type="button" className="link-btn" onClick={() => setMode("signin")}>← Back to sign in</button>
+            <button type="button" className="link-btn" onClick={() => setMode("signin")}>{mode === "signup" ? "I already have an account" : "← Back to sign in"}</button>
           )}
         </div>
       </form>

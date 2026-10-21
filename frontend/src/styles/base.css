@@ -231,3 +231,56 @@ button.stage[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0
 .ml-body.is-locked { opacity: 0.55; }
 .ml-body.is-locked * { cursor: not-allowed; }
 .locked-banner { border-color: var(--warn); }
+
+/* ------------------------------------------------------------------ landing page */
+.landing { min-height: 100vh; display: flex; flex-direction: column; background:
+  radial-gradient(900px 420px at 85% -10%, rgba(147, 196, 161, 0.10), transparent 70%), var(--bg); }
+.landing main { flex: 1; width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+.lp-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  max-width: 1120px; width: 100%; margin: 0 auto; padding: 18px 24px; }
+.btn.lg { height: 46px; padding: 0 20px; font-size: 15px; }
+.lp-hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; padding: 56px 0 72px; }
+.lp-hero h1 { font-size: clamp(32px, 4.6vw, 52px); line-height: 1.08; letter-spacing: -0.03em; margin: 14px 0 18px; }
+.lp-eyebrow { display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent-strong); background: var(--accent-soft);
+  padding: 5px 12px; border-radius: 999px; }
+.lp-lead { font-size: 17px; line-height: 1.6; color: var(--text); max-width: 540px; margin: 0 0 28px; }
+.lp-mock { display: flex; flex-direction: column; gap: 12px; padding: 20px; border-radius: var(--radius-lg);
+  background: var(--panel); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.lp-mock-strip { display: flex; gap: 6px; flex-wrap: wrap; }
+.lp-step { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 6px 10px 6px 6px; border-radius: 10px;
+  border: 1px solid var(--line); color: var(--muted); }
+.lp-step b { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--sunken); font-size: 11px; }
+.lp-step.done b { background: var(--accent-soft); color: var(--accent-strong); }
+.lp-step.on { border-color: var(--accent); color: var(--strong); }
+.lp-mock-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: var(--radius); background: var(--bg); border: 1px solid var(--line); }
+.lp-mock-card.small-card { flex-direction: row; align-items: center; gap: 10px; }
+.lp-mock-rows { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 14px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.lp-mock-rows .hl { color: var(--accent-strong); background: var(--accent-soft); padding: 0 6px; border-radius: 4px; }
+.lp-mock .option { cursor: default; }
+.lp-section { padding: 56px 0; border-top: 1px solid var(--line); }
+.lp-h2 { font-size: clamp(22px, 2.6vw, 30px); letter-spacing: -0.02em; margin: 0 0 8px; }
+.lp-sub { color: var(--muted); font-size: 15.5px; margin: 0 0 28px; max-width: 620px; }
+.lp-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.lp-stage { position: relative; padding: 22px; border-radius: var(--radius-lg); background: var(--panel); border: 1px solid var(--border); }
+.lp-stage h3, .lp-point h3 { font-size: 16.5px; margin: 12px 0 8px; }
+.lp-stage p, .lp-point p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 14.5px; }
+.lp-n { width: 34px; height: 34px; border-radius: 50%; display: inline-grid; place-items: center; font-weight: 700;
+  background: var(--accent-soft); color: var(--accent-strong); }
+.lp-arrow { position: absolute; right: -16px; top: 30px; color: var(--muted); font-size: 18px; }
+.lp-points { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.lp-point { padding: 22px; border-radius: var(--radius-lg); border: 1px solid var(--line); }
+.lp-point h3 { margin-top: 0; }
+.lp-cta { text-align: center; padding: 64px 0 80px; border-top: 1px solid var(--line); }
+.lp-cta .lp-sub { margin-left: auto; margin-right: auto; }
+.lp-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  max-width: 1120px; width: 100%; margin: 0 auto; padding: 22px 24px; border-top: 1px solid var(--line); color: var(--nav); }
+@media (max-width: 900px) {
+  .lp-hero { grid-template-columns: 1fr; gap: 32px; padding: 32px 0 48px; }
+  .lp-stages, .lp-points { grid-template-columns: 1fr; }
+  .lp-arrow { display: none; }
+}
+@media (max-width: 520px) {
+  .landing main, .lp-nav, .lp-footer { padding-left: 16px; padding-right: 16px; }
+  .lp-nav nav .btn.ghost[href="#how"] { display: none; }
+  .btn.lg { width: 100%; }
+}
